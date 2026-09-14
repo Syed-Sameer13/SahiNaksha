@@ -59,11 +59,26 @@ export default function UploadPanel({ onComplete }) {
       if (dsm) body.append("dsm", dsm);
 
       const response = await fetch(API + "/analyze", { method: "POST", body });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Analysis failed.");
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : { detail: await response.text() };
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail ||
+          data.message ||
+          "Backend returned HTTP " + response.status
+        );
+      }
+
       onComplete({ ...data, original_image_url: API + data.original_image_url });
     } catch (e) {
-      setError(e.message || "Unable to analyze image.");
+      if (e instanceof TypeError && /fetch/i.test(e.message)) {
+        setError("Cannot reach the SahiNaksha backend. The server may be waking up or temporarily unavailable. Please wait 30–60 seconds and try again.");
+      } else {
+        setError(e.message || "Unable to analyze image.");
+      }
     } finally {
       setLoading(false);
     }
@@ -103,7 +118,7 @@ export default function UploadPanel({ onComplete }) {
           {preview && <img className="preview" src={preview} alt="Selected aerial preview"/>}
 
           <div className="muted">
-            AI mode is used when the optional SAM engine is configured. Otherwise SahiNaksha uses the conservative CV fallback and clearly reports that mode.
+            API: {API}
           </div>
 
           {error && <p className="error">{error}</p>}
