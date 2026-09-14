@@ -10,3 +10,8 @@ backend/outputs/*
 node_modules/
 frontend/dist/
 .DS_Store
+
+# AI model weights
+backend/models/*.pth
+backend/models/*.pt
+backend/models/*.onnx
