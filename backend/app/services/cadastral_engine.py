@@ -158,3 +158,24 @@ def classify_parcel_landuse(parcels, image_path):
         feature["properties"]["vegetation_ratio"] = round(float(green_ratio), 2)
 
     return parcels
+
+
+def classify_parcel_height(parcels, dsm_path):
+    """Attach relative height evidence from an aligned DSM/height raster."""
+    dsm = cv2.imread(dsm_path, cv2.IMREAD_GRAYSCALE)
+    if dsm is None:
+        return parcels
+    height, width = dsm.shape[:2]
+
+    for feature in parcels.get("features", []):
+        geometry = shape(feature["geometry"])
+        mask = np.zeros((height, width), dtype=np.uint8)
+        pts = [_scale_to_image((x, y), width, height) for x, y in geometry.exterior.coords]
+        if len(pts) < 3:
+            continue
+        cv2.fillPoly(mask, [np.array(pts, dtype=np.int32)], 255)
+        values = dsm[mask > 0]
+        if len(values):
+            feature.setdefault("properties", {})["relative_height_mean"] = round(float(np.mean(values)), 2)
+            feature["properties"]["height_source"] = "aligned_dsm"
+    return parcels
