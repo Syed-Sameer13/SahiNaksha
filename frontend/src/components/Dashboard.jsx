@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 const BOUNDS = [[0, 0], [100, 100]];
 
 export default function Dashboard({ result, onReset }) {
-  const [layers, setLayers] = useState({ parcels: true, buildings: true, roads: true });
+  const [layers, setLayers] = useState({ parcels: false, buildings: true, roads: false });
   const [selected, setSelected] = useState(null);
   const [review, setReview] = useState({});
 
@@ -34,7 +34,7 @@ export default function Dashboard({ result, onReset }) {
       <header className="topbar">
         <div>
           <div className="brand">Sahi<span>Naksha</span></div>
-          <small>{result.analysis_mode === "opencv" ? "AI feature extraction completed" : "Demo fallback used — verify results"}</small>
+          <small>{result.analysis_mode === "opencv" ? "Strict high-confidence feature extraction completed" : "Demo fallback used — verify results"}</small>
         </div>
         <div className="actions">
           <button className="secondary-button" onClick={exportFile}>Export GeoJSON</button>
@@ -44,8 +44,8 @@ export default function Dashboard({ result, onReset }) {
 
       <section className="summary-grid">
         <div><b>{c.parcels}</b><span>Parcel Candidates</span></div>
-        <div><b>{c.buildings}</b><span>Buildings</span></div>
-        <div><b>{c.roads}</b><span>Road Features</span></div>
+        <div><b>{c.buildings}</b><span>High-Confidence Buildings</span></div>
+        <div><b>{c.roads}</b><span>Road Candidates</span></div>
         <div><b>{c.issues}</b><span>Validation Issues</span></div>
       </section>
 
@@ -58,6 +58,8 @@ export default function Dashboard({ result, onReset }) {
               {key}
             </label>
           ))}
+
+          <p className="muted">The map starts with only high-confidence buildings enabled to avoid clutter. Parcel boundaries are not fabricated from a single RGB image.</p>
 
           <hr />
           <h3>Human Review</h3>
@@ -79,25 +81,17 @@ export default function Dashboard({ result, onReset }) {
 
           <hr />
           <h3>Validation</h3>
-          <p className="muted">{c.issues ? c.issues + " issue(s) require review." : "No geometry issues detected."}</p>
+          <p className="muted">{c.issues ? c.issues + " issue(s) require review." : "No parcel geometry issues detected."}</p>
         </aside>
 
         <div className="map-wrap">
-          <MapContainer
-            crs={CRS.Simple}
-            bounds={BOUNDS}
-            boundsOptions={{ padding: [20, 20] }}
-            minZoom={-2}
-            maxZoom={4}
-            zoom={0}
-            style={{ height: "100%", width: "100%", background: "#111827" }}
-          >
-            {result.original_image_url && <ImageOverlay url={result.original_image_url} bounds={BOUNDS} opacity={0.8} />}
-            {layers.parcels && <GeoJSON data={result.parcels} style={{ color: "#34d399", weight: 2, fillOpacity: 0.18 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
-            {layers.buildings && <GeoJSON data={result.buildings} style={{ color: "#60a5fa", weight: 2, fillOpacity: 0.35 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
-            {layers.roads && <GeoJSON data={result.roads} style={{ color: "#f59e0b", weight: 5 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
+          <MapContainer crs={CRS.Simple} bounds={BOUNDS} boundsOptions={{ padding: [20, 20] }} minZoom={-2} maxZoom={4} zoom={0} style={{ height: "100%", width: "100%", background: "#111827" }}>
+            {result.original_image_url && <ImageOverlay url={result.original_image_url} bounds={BOUNDS} opacity={0.94} />}
+            {layers.parcels && <GeoJSON data={result.parcels} style={{ color: "#34d399", weight: 1.5, fillOpacity: 0.10 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
+            {layers.buildings && <GeoJSON data={result.buildings} style={{ color: "#38bdf8", weight: 2.5, fillOpacity: 0.12 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
+            {layers.roads && <GeoJSON data={result.roads} style={{ color: "#f59e0b", weight: 3 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
           </MapContainer>
-          <div className="map-note">AI-generated candidates require human verification.</div>
+          <div className="map-note">Only high-confidence detections are shown by default. Human verification remains required.</div>
         </div>
       </section>
     </main>
