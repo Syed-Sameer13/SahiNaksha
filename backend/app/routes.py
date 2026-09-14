@@ -36,7 +36,7 @@ async def analyze(
 
     uploads = Path(__file__).resolve().parents[1] / "uploads"
     uploads.mkdir(exist_ok=True)
-    image_path = await _save_upload(file, uploads, set(ALLOWED_TYPES.values()))
+    image_path = await _save_upload(file, uploads, {".jpg", ".jpeg", ".png"})
 
     reference_path = None
     if reference_parcels is not None:
