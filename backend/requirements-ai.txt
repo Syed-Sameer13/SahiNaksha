@@ -1,0 +1,7 @@
+# Optional AI stack for the final SahiNaksha extraction engine.
+# Install only when you are ready to run SAM locally:
+# pip install -r requirements-ai.txt
+
+torch
+torchvision
+git+https://github.com/facebookresearch/segment-anything.git
