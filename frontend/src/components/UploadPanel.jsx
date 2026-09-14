@@ -5,6 +5,8 @@ const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 export default function UploadPanel({ onComplete }) {
   const [file, setFile] = useState(null);
   const [reference, setReference] = useState(null);
+  const [groundTruth, setGroundTruth] = useState(null);
+  const [dsm, setDsm] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,14 +22,24 @@ export default function UploadPanel({ onComplete }) {
     setPreview(URL.createObjectURL(f));
   }
 
-  function chooseReference(f) {
+  function chooseGeoJson(f, setter, label) {
     if (!f) return;
-    if (!f.name.toLowerCase().endsWith(".json") && !f.name.toLowerCase().endsWith(".geojson")) {
-      setError("Reference parcel layer must be a .json or .geojson file.");
+    if (!/\.(json|geojson)$/i.test(f.name)) {
+      setError(label + " must be a .json or .geojson file.");
       return;
     }
     setError("");
-    setReference(f);
+    setter(f);
+  }
+
+  function chooseDsm(f) {
+    if (!f) return;
+    if (!/\.(jpg|jpeg|png)$/i.test(f.name)) {
+      setError("DSM prototype input must currently be an aligned PNG/JPG grayscale raster.");
+      return;
+    }
+    setError("");
+    setDsm(f);
   }
 
   async function analyze() {
@@ -35,12 +47,16 @@ export default function UploadPanel({ onComplete }) {
       setError("Choose a drone or orthomosaic image before analysis.");
       return;
     }
+
     setLoading(true);
     setError("");
+
     try {
       const body = new FormData();
       body.append("file", file);
       if (reference) body.append("reference_parcels", reference);
+      if (groundTruth) body.append("ground_truth", groundTruth);
+      if (dsm) body.append("dsm", dsm);
 
       const response = await fetch(API + "/analyze", { method: "POST", body });
       const data = await response.json();
@@ -56,34 +72,44 @@ export default function UploadPanel({ onComplete }) {
   return (
     <main className="app-shell">
       <section className="hero">
-        <div className="badge">SIH26012 CADASTRAL MVP</div>
+        <div className="badge">SAHINAKSHA • AI CADASTRAL ENGINE</div>
         <h1>Sahi<span>Naksha</span></h1>
-        <p>AI-Assisted Urban Parcel Mapping and Cadastral Feature Extraction</p>
+        <p>AI segmentation • GIS fusion • topology repair • survey validation</p>
 
         <div className="upload-card">
-          <h2>Build a preliminary cadastral map</h2>
-          <p>Upload the drone/orthomosaic image. For actual parcel-map generation, also upload an existing parcel GeoJSON layer aligned to the image.</p>
+          <h2>Generate a preliminary cadastral map</h2>
+          <p>Minimum input is a high-resolution drone/orthomosaic image. Add GIS, DSM and ground-truth layers to improve and measure the result.</p>
 
           <label className="file-picker">
             <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={(e) => chooseImage(e.target.files?.[0])}/>
-            <span>{file ? file.name : "1. Choose Drone / Orthomosaic Image"}</span>
+            <span>{file ? file.name : "1. Required — Drone / Orthomosaic Image"}</span>
           </label>
 
           <label className="file-picker">
-            <input type="file" accept=".json,.geojson,application/geo+json,application/json" onChange={(e) => chooseReference(e.target.files?.[0])}/>
-            <span>{reference ? reference.name : "2. Optional: Existing Parcel Layer (.geojson)"}</span>
+            <input type="file" accept=".json,.geojson" onChange={(e) => chooseGeoJson(e.target.files?.[0], setReference, "Existing parcel layer")}/>
+            <span>{reference ? reference.name : "2. Recommended — Existing Parcel GIS (.geojson)"}</span>
+          </label>
+
+          <label className="file-picker">
+            <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onChange={(e) => chooseDsm(e.target.files?.[0])}/>
+            <span>{dsm ? dsm.name : "3. Optional — Aligned DSM / Height Raster"}</span>
+          </label>
+
+          <label className="file-picker">
+            <input type="file" accept=".json,.geojson" onChange={(e) => chooseGeoJson(e.target.files?.[0], setGroundTruth, "Ground truth layer")}/>
+            <span>{groundTruth ? groundTruth.name : "4. Optional — Ground Truth for Accuracy Metrics"}</span>
           </label>
 
           {preview && <img className="preview" src={preview} alt="Selected aerial preview"/>}
 
           <div className="muted">
-            Image only = feature evidence. Image + parcel GIS layer = topology-validated preliminary cadastral map with drone-edge refinement.
+            AI mode is used when the optional SAM engine is configured. Otherwise SahiNaksha uses the conservative CV fallback and clearly reports that mode.
           </div>
 
           {error && <p className="error">{error}</p>}
 
           <button className="primary-button" onClick={analyze} disabled={loading}>
-            {loading ? "Generating cadastral map…" : "Generate Preliminary Cadastral Map"}
+            {loading ? "Running AI cadastral pipeline…" : "Generate Preliminary Cadastral Map"}
           </button>
         </div>
       </section>
