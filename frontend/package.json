@@ -1,1 +1,21 @@
-{"name":"sahinaksha-frontend","private":true,"version":"0.1.0","type":"module","scripts":{"dev":"vite","build":"vite","preview":"vite preview"},"dependencies":{"@vitejs/plugin-react":"latest","leaflet":"latest","react":"latest","react-dom":"latest","react-leaflet":"latest","vite":"latest"}}
+{
+  "name": "sahinaksha-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "leaflet": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-leaflet": "latest"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest"
+  }
+}
