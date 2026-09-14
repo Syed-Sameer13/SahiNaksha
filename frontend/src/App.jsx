@@ -1,0 +1,2 @@
+function App(){return <main className="app-shell"><section className="hero"><div className="badge">SIH PROTOTYPE</div><h1>Sahi<span>Naksha</span></h1><p>AI-Assisted Urban Parcel Mapping</p><div className="upload-card"><div className="upload-icon">↑</div><h2>Upload aerial imagery</h2><p>JPG, JPEG or PNG · Analysis pipeline coming next</p><button disabled>Analyze Image</button></div></section></main>}
+export default App;
