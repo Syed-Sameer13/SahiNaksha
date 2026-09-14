@@ -1,2 +1,4 @@
-function App(){return <main className="app-shell"><section className="hero"><div className="badge">SIH PROTOTYPE</div><h1>Sahi<span>Naksha</span></h1><p>AI-Assisted Urban Parcel Mapping</p><div className="upload-card"><div className="upload-icon">↑</div><h2>Upload aerial imagery</h2><p>JPG, JPEG or PNG · Analysis pipeline coming next</p><button disabled>Analyze Image</button></div></section></main>}
-export default App;
+import { useState } from "react";
+import UploadPanel from "./components/UploadPanel";
+import Dashboard from "./components/Dashboard";
+export default function App(){const [result,setResult]=useState(null);return result?<Dashboard result={result} onReset={()=>setResult(null)}/>:<UploadPanel onComplete={setResult}/>;}
