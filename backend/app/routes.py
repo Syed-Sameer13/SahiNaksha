@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from uuid import uuid4
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -7,19 +6,19 @@ from .services.analysis import analyze_image
 from .services.export_service import to_json_bytes
 
 router = APIRouter()
-ALLOWED_TYPES = {"image/jpeg": ".jpg", "image/png": ".png"}
+ALLOWED_TYPES = {"image/jpeg", "image/png"}
 MAX_SIZE = 20 * 1024 * 1024
 ANALYSES = {}
 
 
-async def _save_upload(upload: UploadFile, directory: Path, allowed_suffixes=None):
+async def _save_upload(upload: UploadFile, directory: Path, allowed_suffixes):
     content = await upload.read()
     if not content:
         raise HTTPException(status_code=400, detail=f"{upload.filename or 'Uploaded file'} is empty.")
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=400, detail="Uploaded file exceeds the 20 MB prototype limit.")
     suffix = Path(upload.filename or "").suffix.lower()
-    if allowed_suffixes and suffix not in allowed_suffixes:
+    if suffix not in allowed_suffixes:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
     path = directory / f"{uuid4().hex}{suffix}"
     path.write_bytes(content)
@@ -30,23 +29,32 @@ async def _save_upload(upload: UploadFile, directory: Path, allowed_suffixes=Non
 async def analyze(
     file: UploadFile = File(...),
     reference_parcels: UploadFile | None = File(None),
+    ground_truth: UploadFile | None = File(None),
+    dsm: UploadFile | None = File(None),
 ):
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Only JPG, JPEG and PNG images are supported.")
 
     uploads = Path(__file__).resolve().parents[1] / "uploads"
     uploads.mkdir(exist_ok=True)
-    image_path = await _save_upload(file, uploads, {".jpg", ".jpeg", ".png"})
 
-    reference_path = None
-    if reference_parcels is not None:
-        reference_path = await _save_upload(reference_parcels, uploads, {".json", ".geojson"})
+    image_path = await _save_upload(file, uploads, {".jpg", ".jpeg", ".png"})
+    reference_path = await _save_upload(reference_parcels, uploads, {".json", ".geojson"}) if reference_parcels else None
+    ground_truth_path = await _save_upload(ground_truth, uploads, {".json", ".geojson"}) if ground_truth else None
+    dsm_path = await _save_upload(dsm, uploads, {".jpg", ".jpeg", ".png"}) if dsm else None
 
     analysis_id = uuid4().hex
     try:
-        result = analyze_image(str(image_path), str(reference_path) if reference_path else None)
+        result = analyze_image(
+            str(image_path),
+            str(reference_path) if reference_path else None,
+            str(ground_truth_path) if ground_truth_path else None,
+            str(dsm_path) if dsm_path else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Analysis pipeline failed: {exc}")
 
     payload = {
         "analysis_id": analysis_id,
