@@ -28,14 +28,14 @@ export default function Dashboard({ result, onReset }) {
   const exportFile = () => window.open(API + "/analysis/" + result.analysis_id + "/export", "_blank");
   const selectedId = selected && (selected.properties.parcel_id || selected.properties.building_id || selected.properties.road_id || selected.id);
   const status = selectedId ? review[selectedId] : null;
-  const cadastralReady = result.cadastral_mode === "drone_refined_existing_gis";
+  const cadastralReady = (result.parcels?.features?.length || 0) > 0;\n  const aiReady = result.ai_engine?.provider === "segment_anything";
 
   return (
     <main className="dashboard">
       <header className="topbar">
         <div>
           <div className="brand">Sahi<span>Naksha</span></div>
-          <small>{cadastralReady ? "Preliminary cadastral map generated from GIS parcels + drone-edge evidence" : "Image-only feature evidence — upload a parcel GIS layer for cadastral map generation"}</small>
+          <small>{aiReady ? "AI segmentation engine active" : "AI segmentation not configured — conservative CV fallback active"}</small>
         </div>
         <div className="actions">
           <button className="secondary-button" onClick={exportFile}>Export GeoJSON</button>
@@ -53,7 +53,7 @@ export default function Dashboard({ result, onReset }) {
       {!cadastralReady && (
         <section className="cadastral-warning">
           <b>No cadastral parcel layer was generated from this image alone.</b>
-          Parcel boundaries are often not visible in RGB imagery. For the SIH26012 prototype workflow, upload an aligned existing parcel GeoJSON so SahiNaksha can refine boundaries using drone evidence, classify land use, and run topology validation.
+          The current fallback could not generate reliable parcel candidates from this imagery. Configure the AI segmentation engine or provide an existing aligned parcel layer; SahiNaksha will still run land-use classification and topology validation on the resulting polygons.
         </section>
       )}
 
@@ -97,7 +97,7 @@ export default function Dashboard({ result, onReset }) {
             {layers.buildings && <GeoJSON data={result.buildings} style={{ color: "#38bdf8", weight: 2, fillOpacity: 0.08 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
             {layers.roads && <GeoJSON data={result.roads} style={{ color: "#f59e0b", weight: 3 }} onEachFeature={(f, l) => l.on({ click: () => setSelected(f) })} />}
           </MapContainer>
-          <div className="map-note">{cadastralReady ? "Green polygons: topology-validated preliminary cadastral parcels. Blue: building evidence. Human verification remains required." : "Upload a reference parcel layer to produce the preliminary cadastral polygon layer."}</div>
+          <div className="map-note">{cadastralReady ? "Green: preliminary cadastral parcels. Blue: building footprints. Orange: roads/access evidence. All AI-generated cadastral output requires survey review." : "The current extraction engine did not produce reliable parcel polygons for this image."}</div>
         </div>
       </section>
     </main>
