@@ -1,219 +1,97 @@
 # SahiNaksha 🗺️
 
-## AI-Assisted Preliminary Urban Parcel Mapping
+## AI-Assisted Urban Parcel Mapping and Cadastral Feature Extraction
 
-SahiNaksha is a hackathon MVP that demonstrates an AI-assisted workflow for converting aerial imagery into preliminary GIS features. It combines computer vision, topology validation, interactive map visualization, human review, and GeoJSON export.
+SahiNaksha is an SIH26012-oriented MVP for preparing **preliminary urban cadastral maps** from drone/orthomosaic imagery and supporting GIS reference data.
 
-> **Important:** SahiNaksha generates preliminary candidates. It is not presented as a replacement for official cadastral surveying or authoritative land records.
+## What the SIH26012 workflow requires
 
----
-
-## The problem
-
-Creating and updating spatial mapping data manually is time-consuming. Aerial imagery contains useful visual information about:
-
-- Buildings
-- Roads
-- Visible boundaries
-- Land-use patterns
-
-SahiNaksha explores how computer vision can accelerate the first stage of GIS feature generation while keeping a human reviewer in the decision loop.
-
----
-
-## What SahiNaksha does
+The target workflow is:
 
 ```text
-Upload Aerial Image
-        ↓
-OpenCV Image Processing
-        ↓
-Building Candidates + Road Candidates
-        ↓
-Preliminary Parcel Candidate Generation
-        ↓
-Topology Validation
-        ↓
-Interactive GIS Map
-        ↓
-Human Review
-        ↓
-GeoJSON Export
+High-resolution Drone / Orthomosaic
+              +
+Existing GIS Parcel Layer
+              +
+Ground-truth / survey evidence
+              ↓
+AI / CV boundary and feature extraction
+              ↓
+Parcel polygon generation / refinement
+              ↓
+Topology validation
+              ↓
+Land-use classification
+              ↓
+Web-GIS review
+              ↓
+GIS-ready cadastral output
 ```
 
----
+### Current implemented MVP modes
 
-## Features
+#### 1. Image-only evidence mode
+Input:
+- JPG/PNG drone image
 
-### 🖼️ Image upload
-Accepts JPG, JPEG, and PNG imagery.
+Output:
+- Conservative building evidence
+- Conservative road candidates
+- No fabricated cadastral parcel boundaries
 
-### 👁️ Computer vision
-Uses OpenCV for:
+This mode intentionally does **not** claim that invisible legal parcel boundaries can be recovered from RGB pixels alone.
 
-- Image preprocessing
-- Edge detection
-- Contour detection
-- Building candidate extraction
-- Hough-line road candidate extraction
+#### 2. Reference-guided cadastral mode
+Input:
+- Drone / orthomosaic image
+- Existing parcel GeoJSON aligned to the image in normalized local coordinates (0..100)
 
-### 🗺️ GIS output
-Features are returned as GeoJSON-compatible structures and displayed on an interactive Leaflet map.
-
-### 🔍 Topology validation
-Uses Shapely to check for:
-
-- Invalid geometry
-- Empty or zero-area geometry
-- Small noise candidates
-- Overlapping parcel candidates
-
-### 👤 Human-in-the-loop review
-A reviewer can inspect a detected feature and mark it:
-
-- Approved
-- Needs Review
-- Rejected
-
-### 📤 GeoJSON export
-Completed analyses can be exported for further GIS use.
-
----
-
-## Technology stack
-
-### Frontend
-
-- React
-- Vite
-- Leaflet
-- React Leaflet
-
-### Backend
-
-- Python
-- FastAPI
-- Uvicorn
-
-### Computer Vision and GIS
-
-- OpenCV
-- NumPy
-- Shapely
-- GeoJSON
-
----
-
-## Project structure
-
-```text
-SahiNaksha/
-├── README.md
-├── SETUP.md
-│
-├── backend/
-│   ├── requirements.txt
-│   └── app/
-│       ├── main.py
-│       ├── routes.py
-│       └── services/
-│           ├── analysis.py
-│           ├── opencv_analysis.py
-│           ├── validation.py
-│           ├── geojson_service.py
-│           └── export_service.py
-│
-└── frontend/
-    └── src/
-        ├── App.jsx
-        ├── styles.css
-        └── components/
-            ├── UploadPanel.jsx
-            └── Dashboard.jsx
-```
-
----
+Output:
+- Preliminary cadastral parcel polygons
+- Drone-edge boundary refinement
+- Parcel boundary evidence score
+- Land-use classification
+- Shapely topology validation
+- Web-GIS visualization
+- GeoJSON export
 
 ## Run locally
 
-See **[SETUP.md](SETUP.md)** for complete instructions.
+See [SETUP.md](SETUP.md).
 
-Quick version:
+## Important prototype coordinate convention
 
-```bash
-# Backend
-cd backend
-python -m venv venv
-# Activate the virtual environment
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+The current Web-GIS prototype uses Leaflet's image-local coordinate space:
 
-In another terminal:
+- Left edge = X 0
+- Right edge = X 100
+- Bottom edge = Y 0
+- Top edge = Y 100
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Therefore the current reference parcel GeoJSON input must already be aligned to that image-local 0..100 coordinate system.
 
----
+A full production deployment should instead support georeferenced orthomosaics, CRS transformations, DSM/DTM and GNSS/CORS survey data.
 
-## MVP workflow
+## Honest limitation
+
+SahiNaksha is a prototype. The current reference-guided cadastral mode is a defensible MVP workflow, but the project still needs a trained or domain-adapted segmentation model for reliable **image-only automatic parcel extraction**.
+
+For SIH demonstration, the recommended end-to-end demo is:
 
 ```text
-INPUT
-Aerial image
-
-PROCESSING
-OpenCV → GIS candidate generation → Shapely validation
-
-OUTPUT
-Buildings
-Road features
-Preliminary parcel candidates
-Validation issues
-Human review status
-GeoJSON export
+Drone Orthomosaic
+      +
+Existing GIS Parcel Layer
+      ↓
+SahiNaksha refinement
+      ↓
+Land-use + feature evidence
+      ↓
+Topology validation
+      ↓
+Surveyor review
+      ↓
+GeoJSON cadastral output
 ```
 
----
-
-## Current MVP limitations
-
-This is a prototype and intentionally has limitations:
-
-- Parcel extraction is heuristic and not authoritative cadastral mapping.
-- OpenCV results depend heavily on image quality.
-- AI/CV output requires human verification.
-- The system does not claim legal land-boundary accuracy.
-
-These limitations are part of the motivation for the human-review workflow.
-
----
-
-## Demo checklist
-
-Before demonstrating:
-
-- [ ] Backend starts successfully
-- [ ] Frontend starts successfully
-- [ ] Health endpoint works
-- [ ] Aerial image uploads
-- [ ] Dashboard opens
-- [ ] Layers toggle correctly
-- [ ] Features can be selected
-- [ ] Human review buttons work
-- [ ] GeoJSON export works
-
----
-
-## Setup
-
-👉 Read **SETUP.md** before running the project.
-
----
-
-## License
-
-Prototype created for educational and hackathon purposes.
+This demonstrates the actual cadastral workflow instead of pretending that a single non-georeferenced RGB image can reveal every legal property boundary.
