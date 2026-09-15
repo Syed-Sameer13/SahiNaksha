@@ -1,5 +1,5 @@
 from .opencv_analysis import extract_features
-from .ai_segmentation import run_ai_segmentation
+from .model_router import run_ai_segmentation
 from .validation import validate_parcels
 from .topology_engine import repair_and_validate_parcels
 from .metrics import evaluate_against_ground_truth
