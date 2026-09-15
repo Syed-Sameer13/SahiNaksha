@@ -1,22 +1,42 @@
-# SahiNaksha fast model adaptation
+# SahiNaksha trained building + road model
 
-This pipeline is designed for the SIH prototype when you have only **10-20 representative aerial images** and need a domain-adapted building-footprint model quickly.
+This folder contains the fast SIH prototype training pipeline. It trains a CPU-friendly pixel segmentation model with three classes:
 
-## What it automates
+```text
+0 = background
+1 = building
+2 = road
+```
 
-1. Reads 10-20 aerial images from one folder.
-2. Generates initial building masks with SAM when a SAM checkpoint is configured; otherwise uses an OpenCV roof proposal fallback.
-3. Removes obvious vegetation/scene masks and converts masks to YOLO segmentation labels.
-4. Creates train/validation splits automatically.
-5. Creates 3 views per source image (original, horizontal flip, 90-degree rotation).
-6. Fine-tunes a small pretrained segmentation model with augmentation and early stopping.
-7. Writes `sahinaksha_building.pt` into the workspace.
+The trained model is used by the backend before the older SAM/OpenCV fallback.
 
-Ultralytics supports training segmentation models from pretrained weights and polygon labels; this is transfer learning, not training a model from scratch.
+## 1. Prepare the labelled dataset
 
-## Windows quick start
+Use original RGB aerial/drone images and matching grayscale PNG masks:
 
-From the repository root:
+```text
+training/dataset/images/
+  image_001.jpg
+  image_002.jpg
+
+training/dataset/masks/
+  image_001_mask.png
+  image_002_mask.png
+```
+
+Mask values must be:
+
+```text
+0 background
+1 building
+2 road
+```
+
+Do not create legal parcel labels from RGB imagery. Parcel/ownership geometry must come from authoritative GIS/survey data.
+
+## 2. Install
+
+Windows:
 
 ```powershell
 cd training
@@ -26,29 +46,67 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Put 10-20 aerial images in:
+## 3. Train
+
+```powershell
+python train_pixel_model.py `
+  --images .\dataset\images `
+  --masks .\dataset\masks `
+  --output ..\backend\models\sahinaksha_pixel_model.joblib `
+  --trees 40 `
+  --depth 12
+```
+
+The model is deliberately small and CPU-friendly. Training takes seconds/minutes on a normal laptop for a small SIH dataset. For a larger dataset, increase `--samples-per-class` and `--trees`.
+
+## 4. Run the backend with the trained model
+
+By default the backend looks for:
 
 ```text
-training/raw_images/
+backend/models/sahinaksha_pixel_model.joblib
 ```
 
-If you already have SAM ViT-B:
+Or set an explicit path:
 
 ```powershell
-$env:SAHINAKSHA_SAM_CHECKPOINT="$PWD\..\backend\models\sam_vit_b_01ec64.pth"
-$env:SAHINAKSHA_SAM_MODEL_TYPE="vit_b"
+$env:SAHINAKSHA_PIXEL_MODEL_PATH="$PWD\..\backend\models\sahinaksha_pixel_model.joblib"
 ```
 
-Run:
+The backend inference order is:
 
-```powershell
-python auto_train.py --images .\raw_images --epochs 45
+```text
+trained building+road model
+        ↓ if unavailable
+SAM
+        ↓ if unavailable
+OpenCV fallback
 ```
 
-For a 2-hour deadline, start with 30-45 epochs. If you have an NVIDIA GPU, the script automatically uses CUDA. On CPU, reduce to `--epochs 20` and expect slower training.
+The UI will therefore continue to work if a model artifact is temporarily unavailable.
 
-## Important
+## 5. Current SIH prototype model
 
-With only 10-20 images, the model can adapt to the **visual domain represented by those images**, but it cannot honestly be expected to generalize to every city, drone, season, altitude, or sensor. Add diverse images later and retrain.
+A first model was trained from three supplied aerial scenes with building and road masks. It achieved approximately **0.88-0.95 pixel accuracy on image-level holdout experiments**, depending on the held-out scene. These are small-domain prototype results, not a claim of general cadastral accuracy.
 
-The generated labels are pseudo-labels. Before using the model for cadastral decisions, visually review them and replace incorrect masks with surveyed/GIS ground truth. The legal parcel boundary itself must not be fabricated from RGB imagery.
+The three scenes are not enough for robust nationwide generalization. For the SIH demonstration, use imagery visually similar to the training domain. After the event, expand the dataset substantially and replace the lightweight model with a stronger aerial segmentation network.
+
+## 6. Cadastral workflow
+
+The AI detects physical evidence:
+
+```text
+RGB / orthomosaic
+      ↓
+Building + road segmentation
+      ↓
+GeoJSON feature polygons
+      ↓
+Existing cadastral GIS / survey data
+      ↓
+Boundary refinement + topology validation
+      ↓
+Human / survey verification
+```
+
+The system deliberately does **not** claim that an RGB image alone can determine legal ownership boundaries.
