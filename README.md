@@ -1,97 +1,68 @@
 # SahiNaksha 🗺️
 
-## AI-Assisted Urban Parcel Mapping and Cadastral Feature Extraction
+## AI-Assisted Urban Parcel Mapping and Cadastral Feature Extraction — SIH 2026 PS-26012
 
-SahiNaksha is an SIH26012-oriented MVP for preparing **preliminary urban cadastral maps** from drone/orthomosaic imagery and supporting GIS reference data.
+SahiNaksha is an SIH prototype for extracting building/road evidence from drone or orthomosaic imagery, refining GIS parcel information, validating geometry, and presenting the result in a WebGIS workflow.
 
-## What the SIH26012 workflow requires
-
-The target workflow is:
+## Prototype pipeline
 
 ```text
-High-resolution Drone / Orthomosaic
-              +
-Existing GIS Parcel Layer
-              +
-Ground-truth / survey evidence
-              ↓
-AI / CV boundary and feature extraction
-              ↓
-Parcel polygon generation / refinement
-              ↓
+Orthomosaic / Drone RGB
+        ↓
+Custom YOLO segmentation (if trained)
+        ↓
+Building + road polygons
+        ↓
+GIS parcel/reference refinement
+        ↓
 Topology validation
-              ↓
-Land-use classification
-              ↓
-Web-GIS review
-              ↓
-GIS-ready cadastral output
+        ↓
+Land-use / feature attributes
+        ↓
+Human review
+        ↓
+GeoJSON / WebGIS
 ```
 
-### Current implemented MVP modes
+## AI model strategy
 
-#### 1. Image-only evidence mode
-Input:
-- JPG/PNG drone image
+The repository now includes a fast custom YOLO segmentation training path. Ultralytics segmentation models output object masks, polygons and confidence scores, making them suitable for the building/road feature-extraction stage. For a small SIH prototype, fine-tuning a pretrained model is preferred over training from scratch.
 
-Output:
-- Conservative building evidence
-- Conservative road candidates
-- No fabricated cadastral parcel boundaries
+The runtime model order is:
 
-This mode intentionally does **not** claim that invisible legal parcel boundaries can be recovered from RGB pixels alone.
+1. `backend/models/sahinaksha_seg.pt` — custom YOLO model trained for this demo
+2. `backend/models/sahinaksha_pixel_model.joblib` — CPU-friendly fallback
+3. SAM — optional segmentation fallback
 
-#### 2. Reference-guided cadastral mode
-Input:
-- Drone / orthomosaic image
-- Existing parcel GeoJSON aligned to the image in normalized local coordinates (0..100)
+## 10-image demo training
 
-Output:
-- Preliminary cadastral parcel polygons
-- Drone-edge boundary refinement
-- Parcel boundary evidence score
-- Land-use classification
-- Shapely topology validation
-- Web-GIS visualization
-- GeoJSON export
+Read [`training/10_IMAGE_DEMO_PROTOCOL.md`](training/10_IMAGE_DEMO_PROTOCOL.md).
 
-## Run locally
+The critical requirement is **labels**. Ten raw images cannot by themselves teach a model what a building or road is. Use 8 complete labelled scenes for training and hold out 2 complete scenes for validation/demo. With 20 scenes, use 16/4.
 
-See [SETUP.md](SETUP.md).
+Train:
 
-## Important prototype coordinate convention
+```bash
+pip install -r training/requirements-yolo.txt
+python training/quick_train_yolo.py --dataset training/dataset --epochs 60 --imgsz 768 --batch 4 --device 0
+```
 
-The current Web-GIS prototype uses Leaflet's image-local coordinate space:
-
-- Left edge = X 0
-- Right edge = X 100
-- Bottom edge = Y 0
-- Top edge = Y 100
-
-Therefore the current reference parcel GeoJSON input must already be aligned to that image-local 0..100 coordinate system.
-
-A full production deployment should instead support georeferenced orthomosaics, CRS transformations, DSM/DTM and GNSS/CORS survey data.
-
-## Honest limitation
-
-SahiNaksha is a prototype. The current reference-guided cadastral mode is a defensible MVP workflow, but the project still needs a trained or domain-adapted segmentation model for reliable **image-only automatic parcel extraction**.
-
-For SIH demonstration, the recommended end-to-end demo is:
+Then copy the resulting `best.pt` to:
 
 ```text
-Drone Orthomosaic
-      +
-Existing GIS Parcel Layer
-      ↓
-SahiNaksha refinement
-      ↓
-Land-use + feature evidence
-      ↓
-Topology validation
-      ↓
-Surveyor review
-      ↓
-GeoJSON cadastral output
+backend/models/sahinaksha_seg.pt
 ```
 
-This demonstrates the actual cadastral workflow instead of pretending that a single non-georeferenced RGB image can reveal every legal property boundary.
+For CPU-only training use `--device cpu`, but GPU is strongly preferred for today's deadline.
+
+## Cadastral accuracy rule
+
+A detected building footprint is **not** a legal property boundary. SahiNaksha therefore does not fabricate ownership boundaries from RGB pixels. When an existing cadastral/GIS parcel layer is available, the system can refine and validate it using image evidence. Final cadastral boundaries require authoritative GIS/survey evidence and human verification.
+
+## Current GIS prototype
+
+The WebGIS uses image-local normalized coordinates (0..100) for the prototype. Production deployment should add GeoTIFF CRS handling, DSM/DTM, GNSS/CORS, authoritative cadastral layers and field-survey integration.
+
+## Local setup
+
+See [`SETUP.md`](SETUP.md) and [`AI_SETUP.md`](AI_SETUP.md).
