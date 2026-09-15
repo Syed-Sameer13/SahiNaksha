@@ -20,7 +20,8 @@ def analyze_image(
 
     if ai_result is not None:
         result = ai_result
-        extraction_mode = "ai_segmentation"
+        provider = ai_info.get("provider", "ai")
+        extraction_mode = "trained_segmentation" if provider == "sahinaksha_trained_pixel_model" else "ai_segmentation"
     else:
         result = extract_features(image_path)
         extraction_mode = "opencv_fallback"
@@ -29,10 +30,9 @@ def analyze_image(
         parcels = load_reference_parcels(reference_parcels_path, image_path)
         result["parcels"] = parcels
         result["cadastral_mode"] = "drone_refined_existing_gis"
-    elif ai_result is not None:
-        result["cadastral_mode"] = "ai_generated_preliminary"
     else:
-        result["cadastral_mode"] = "feature_evidence_only"
+        # Never infer authoritative ownership parcels from RGB imagery alone.
+        result["cadastral_mode"] = "feature_evidence_only" if ai_result is None else "preliminary_feature_extraction"
 
     result["parcels"], topology_stats = repair_and_validate_parcels(result["parcels"])
     result["parcels"] = classify_parcel_landuse(result["parcels"], image_path)
