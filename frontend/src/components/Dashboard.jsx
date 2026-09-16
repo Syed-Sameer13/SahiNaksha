@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { MapContainer, ImageOverlay, GeoJSON } from "react-leaflet";
 import { CRS } from "leaflet";
 
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 const BOUNDS = [[0, 0], [100, 100]];
+const STORAGE_PREFIX = "sahinaksha:review:";
 
 function polygonArea(geometry) {
   if (!geometry) return 0;
@@ -74,17 +75,40 @@ const FIELD_CONFIG = {
   ],
 };
 
+function readStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function Dashboard({ result, onReset }) {
   const hasParcels = (result.parcels?.features?.length || 0) > 0;
+  const storageKey = `${STORAGE_PREFIX}${result.analysis_id || "current"}`;
   const [layers, setLayers] = useState({ parcels: hasParcels, buildings: true, roads: true });
   const [selected, setSelected] = useState(null);
-  const [review, setReview] = useState({});
-  const [edits, setEdits] = useState({});
+  const [review, setReview] = useState(() => readStorage(`${storageKey}:decisions`, {}));
+  const [edits, setEdits] = useState(() => readStorage(`${storageKey}:edits`, {}));
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
-  const [reviewerName, setReviewerName] = useState("");
+  const [reviewerName, setReviewerName] = useState(() => localStorage.getItem(`${storageKey}:reviewer`) || "");
   const [finalMap, setFinalMap] = useState(false);
   const [finalized, setFinalized] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+
+  useEffect(() => {
+    try { localStorage.setItem(`${storageKey}:decisions`, JSON.stringify(review)); } catch { /* storage unavailable */ }
+  }, [storageKey, review]);
+
+  useEffect(() => {
+    try { localStorage.setItem(`${storageKey}:edits`, JSON.stringify(edits)); } catch { /* storage unavailable */ }
+  }, [storageKey, edits]);
+
+  useEffect(() => {
+    try { localStorage.setItem(`${storageKey}:reviewer`, reviewerName); } catch { /* storage unavailable */ }
+  }, [storageKey, reviewerName]);
 
   const c = {
     parcels: result.parcels?.features?.length || 0,
@@ -124,6 +148,7 @@ export default function Dashboard({ result, onReset }) {
     setSelected(feature);
     setEditing(false);
     setDraft({ ...(feature.properties || {}), ...(edits[id] || {}) });
+    setSaveMessage("");
     setFinalized(false);
   };
 
@@ -131,6 +156,7 @@ export default function Dashboard({ result, onReset }) {
     if (!selected) return;
     setDraft(currentProperties);
     setEditing(true);
+    setSaveMessage("");
     setFinalized(false);
   };
 
@@ -142,13 +168,13 @@ export default function Dashboard({ result, onReset }) {
   const saveEdits = () => {
     if (!selectedId) return;
     const cleaned = { ...draft };
-    Object.keys(cleaned).forEach((key) => {
-      if (cleaned[key] === "") delete cleaned[key];
-    });
+    Object.keys(cleaned).forEach((key) => { if (cleaned[key] === "") delete cleaned[key]; });
     setEdits((current) => ({ ...current, [selectedId]: cleaned }));
     setSelected((current) => current ? { ...current, properties: { ...(current.properties || {}), ...cleaned } } : current);
     setEditing(false);
     setFinalized(false);
+    setSaveMessage("Saved locally ✓");
+    window.setTimeout(() => setSaveMessage(""), 2200);
   };
 
   const mark = (decision) => {
@@ -160,14 +186,14 @@ export default function Dashboard({ result, onReset }) {
   const featureWithEdits = (feature) => {
     const id = featureId(feature);
     const saved = edits[id] || {};
+    const decision = review[id];
     return {
       ...feature,
       properties: {
         ...(feature.properties || {}),
         ...saved,
-        ...(review[id] ? { review_status: review[id] } : {}),
+        ...(decision ? { review_status: decision, reviewed_at: new Date().toISOString() } : {}),
         ...(reviewerName.trim() ? { reviewed_by: reviewerName.trim() } : {}),
-        ...(review[id] ? { reviewed_at: new Date().toISOString() } : {}),
       },
     };
   };
@@ -194,12 +220,28 @@ export default function Dashboard({ result, onReset }) {
         approved_feature_count: features.length,
         edited_feature_count: Object.keys(edits).length,
         reviewed_by: reviewerName.trim() || "not specified",
+        persistence: "browser_local_storage",
         legal_status: "prototype_output_requires_authoritative_cadastral_and_survey_validation",
       },
     };
   }, [result, review, edits, reviewerName]);
 
   const exportFile = () => window.open(API + "/analysis/" + result.analysis_id + "/export", "_blank");
+
+  const clearSavedReview = () => {
+    if (!window.confirm("Clear saved review decisions and attribute edits for this analysis?")) return;
+    try {
+      localStorage.removeItem(`${storageKey}:decisions`);
+      localStorage.removeItem(`${storageKey}:edits`);
+      setReview({});
+      setEdits({});
+      setSelected(null);
+      setEditing(false);
+      setFinalized(false);
+      setSaveMessage("Saved review cleared");
+      window.setTimeout(() => setSaveMessage(""), 2200);
+    } catch { setSaveMessage("Could not clear local storage"); }
+  };
 
   const downloadFinalGIS = () => {
     if (!finalGIS.features.length) return;
@@ -235,11 +277,7 @@ export default function Dashboard({ result, onReset }) {
 
       <section className="review-report">
         <div className="report-heading">
-          <div>
-            <span className="report-kicker">AI REVIEW REPORT</span>
-            <h2>Model findings & quality summary</h2>
-            <p>Numbers below are calculated from this analysis result. Accuracy metrics appear only when ground-truth data is supplied.</p>
-          </div>
+          <div><span className="report-kicker">AI REVIEW REPORT</span><h2>Model findings & quality summary</h2><p>Numbers below are calculated from this analysis result. Accuracy metrics appear only when ground-truth data is supplied.</p></div>
           <div className={"engine-pill " + (aiReady ? "ready" : "fallback")}>{aiReady ? "● Model ready" : "● Fallback"}</div>
         </div>
         <div className="report-grid">
@@ -254,7 +292,7 @@ export default function Dashboard({ result, onReset }) {
           <div className="report-section"><h3>Human review</h3><div className="review-counts"><span><b>{stats.approved}</b> Approved</span><span><b>{stats.needsReview}</b> Needs review</span><span><b>{stats.rejected}</b> Rejected</span></div><div className="review-progress"><i style={{ width: `${(stats.reviewed / Math.max(1, totalFeatures)) * 100}%` }} /></div><small>{stats.reviewed} of {totalFeatures} mapped features reviewed in this session.</small></div>
           <div className="report-section"><h3>Validation</h3>{evaluation ? <><div className="metric-row"><span>Mean IoU</span><b>{evaluation.mean_iou}</b></div><div className="metric-row"><span>Precision @ IoU 0.10</span><b>{pct(evaluation.precision_at_iou_0_10 * 100)}</b></div><div className="metric-row"><span>Recall @ IoU 0.10</span><b>{pct(evaluation.recall_at_iou_0_10 * 100)}</b></div><small>Measured against the uploaded ground-truth layer.</small></> : <div className="validation-note"><b>Ground truth not supplied</b><span>Use a reference/ground-truth GIS layer to show measured precision, recall and IoU. The dashboard will not invent an accuracy score.</span></div>}</div>
         </div>
-        <div className="presentation-note"><b>Presentation line:</b> “The AI extracts building footprints, road/access evidence and preliminary parcel blocks. Each feature can then be reviewed, corrected, validated and exported as GIS data. Legal parcel boundaries require authoritative cadastral data and survey verification.”</div>
+        <div className="presentation-note"><b>Presentation line:</b> “The AI extracts building footprints, road/access evidence and preliminary parcel blocks. Each feature can then be reviewed, validated and exported as GIS data. Legal parcel boundaries require authoritative cadastral data and survey verification.”</div>
       </section>
 
       <section className="next-steps">
@@ -264,13 +302,10 @@ export default function Dashboard({ result, onReset }) {
           <div className={"workflow-step " + (finalMap ? "done" : "") }><div className="step-number">2</div><div><b>Final map validation</b><span>{finalMap ? "Approved features displayed" : "Compare reviewed features on map"}</span></div></div>
           <div className={"workflow-step " + (finalized ? "done" : "") }><div className="step-number">3</div><div><b>Final GIS output</b><span>{finalGIS.features.length} approved features prepared</span></div></div>
         </div>
-        <div className="next-actions">
-          <button className="secondary-button" onClick={() => setFinalMap((value) => !value)}>{finalMap ? "Show AI Map" : "Open Final Reviewed Map"}</button>
-          <button className="primary-button inline-button" disabled={!stats.approved} onClick={downloadFinalGIS}>Generate & Download Final GIS</button>
-        </div>
+        <div className="next-actions"><button className="secondary-button" onClick={() => setFinalMap((value) => !value)}>{finalMap ? "Show AI Map" : "Open Final Reviewed Map"}</button><button className="primary-button inline-button" disabled={!stats.approved} onClick={downloadFinalGIS}>Generate & Download Final GIS</button></div>
         {!stats.approved && <p className="workflow-note">Approve at least one feature to generate the final GIS output. Features marked “Needs Review” or “Rejected” are not included.</p>}
         {stats.needsReview > 0 && <p className="workflow-warning">{stats.needsReview} feature(s) are still marked “Needs Review”. Resolve them before treating the dataset as final.</p>}
-        {finalized && <div className="final-output"><b>Final GIS package generated</b><span>{finalGIS.features.length} approved features · {Object.keys(edits).length} feature(s) with attribute edits · GeoJSON</span></div>}
+        {finalized && <div className="final-output"><b>Final GIS package generated</b><span>{finalGIS.features.length} approved features · GeoJSON · human-reviewed prototype output</span></div>}
       </section>
 
       <section className="cadastral-warning"><b>Pipeline:</b> {result.analysis_mode} · <b>AI:</b> {result.ai_engine?.status || "not reported"} · <b>Topology fixes:</b> {result.topology_stats?.repaired_geometries || 0} · <b>Overlaps resolved:</b> {result.topology_stats?.overlap_conflicts_resolved || 0}</section>
@@ -281,33 +316,25 @@ export default function Dashboard({ result, onReset }) {
           <h3>{finalMap ? "Final Reviewed Map" : "GIS Layers"}</h3>
           {!finalMap ? Object.keys(layers).map((key) => <label key={key} className="toggle"><input type="checkbox" checked={layers[key]} onChange={() => toggle(key)} />{key}</label>) : <p className="final-map-hint">Showing only features that were approved during human review.</p>}
           <hr />
-          <h3>Human Review & Attribute Correction</h3>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 5 }}>Reviewer name</label>
-            <input value={reviewerName} onChange={(e) => setReviewerName(e.target.value)} placeholder="Enter reviewer name" style={{ width: "100%", boxSizing: "border-box", padding: "9px 10px", border: "1px solid #334155", borderRadius: 8, background: "#0f172a", color: "inherit" }} />
-          </div>
+          <h3>Human Review</h3>
           {selected ? <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>{selectedType} attributes</span>
-              {!editing ? <button className="secondary-button" onClick={startEditing}>Edit Attributes</button> : <div style={{ display: "flex", gap: 6 }}><button className="primary-button" onClick={saveEdits}>Save Changes</button><button className="secondary-button" onClick={cancelEditing}>Cancel</button></div>}
-            </div>
-            {editing ? <div className="details" style={{ display: "grid", gap: 10 }}>
-              {fields.map((field) => {
-                const value = draft[field.key] ?? "";
-                return <label key={field.key} style={{ display: "grid", gap: 5 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700 }}>{field.label}</span>
-                  {field.type === "select" ? <select value={value} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} style={{ width: "100%", boxSizing: "border-box", padding: "8px 9px", border: "1px solid #334155", borderRadius: 7, background: "#0f172a", color: "inherit" }}><option value="">Select...</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea value={value} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} rows={3} placeholder="Add reviewer notes" style={{ width: "100%", boxSizing: "border-box", padding: "8px 9px", border: "1px solid #334155", borderRadius: 7, background: "#0f172a", color: "inherit", resize: "vertical" }} /> : <input type={field.type} min={field.min} step={field.step} value={value} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} style={{ width: "100%", boxSizing: "border-box", padding: "8px 9px", border: "1px solid #334155", borderRadius: 7, background: "#0f172a", color: "inherit" }} />}
-                </label>;
-              })}
-            </div> : <div className="details">{fields.map((field) => <div key={field.key}><span>{field.label}</span><b>{currentProperties[field.key] != null && currentProperties[field.key] !== "" ? String(currentProperties[field.key]) : "—"}</b></div>)}{Object.entries(currentProperties).filter(([key]) => !fields.some((field) => field.key === key)).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{String(value)}</b></div>)}</div>}
-            <div className="review-buttons"><button onClick={() => mark("Approved")}>Approve</button><button onClick={() => mark("Needs Review")}>Needs Review</button><button onClick={() => mark("Rejected")}>Reject</button></div>
-            {status && <p className={"review-status " + status.toLowerCase().replaceAll(" ", "-")}>{status}</p>}
-            {Object.keys(edits[selectedId] || {}).length > 0 && <p className="muted" style={{ marginTop: 8 }}>✓ Attribute corrections saved for this feature and included in the final GIS export.</p>}
-          </> : <p className="muted">Click a building, road or parcel block to inspect its attributes. Use <b>Edit Attributes</b> to correct values, save them, then approve the feature.</p>}
+            <div className="review-editor-header"><div><span className="feature-type-badge">{selectedType}</span><small>{selectedId}</small></div>{!editing && <button className="secondary-button edit-button" onClick={startEditing}>Edit Attributes</button>}</div>
+            {editing ? <div className="edit-form">
+              {fields.map((field) => <label key={field.key} className="edit-field"><span>{field.label}</span>{field.type === "select" ? <select value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))}><option value="">Select...</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea rows={3} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} /> : <input type={field.type} min={field.min} step={field.step} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} />}</label>)}
+              <div className="editor-actions"><button className="primary-button" onClick={saveEdits}>Save Changes</button><button className="secondary-button" onClick={cancelEditing}>Cancel</button></div>
+            </div> : <div className="details">{Object.entries(currentProperties).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{String(value)}</b></div>)}</div>}
+            {saveMessage && <p className="save-message">{saveMessage}</p>}
+            <label className="reviewer-field"><span>Reviewer name</span><input value={reviewerName} placeholder="Enter reviewer name" onChange={(e) => setReviewerName(e.target.value)} /></label>
+            <div className="review-buttons"><button onClick={() => mark("Approved")}>Approve</button><button onClick={() => mark("Needs Review")}>Review</button><button onClick={() => mark("Rejected")}>Reject</button></div>
+            {status && <p className={"review-status " + status.toLowerCase().replaceAll(" ", "-")}>{status} · saved locally</p>}
+          </> : <p className="muted">Click a building, road or parcel block to inspect its properties, edit the data and record a review decision.</p>}
+          <hr />
+          <div className="storage-header"><h3>Local persistence</h3><span>Browser storage</span></div>
+          <p className="muted">Edits, review decisions and reviewer name are saved automatically in this browser for this analysis.</p>
+          <button className="secondary-button" onClick={clearSavedReview}>Clear Saved Review</button>
           <hr />
           <h3>Validation status</h3>
           <p className="muted">{c.issues ? `${c.issues} issue(s) require review.` : "No parcel topology issues detected."}</p>
-          <p className="muted">Attribute edits are session-based in this prototype and are written into the downloaded final GeoJSON.</p>
         </aside>
 
         <div className="map-wrap">
@@ -318,7 +345,7 @@ export default function Dashboard({ result, onReset }) {
             {!finalMap && layers.roads && <GeoJSON data={result.roads} style={{ color: "#f59e0b", weight: 3, fillOpacity: 0.06 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
             {finalMap && <GeoJSON data={finalGIS} style={{ color: "#72d89b", weight: 3, fillOpacity: 0.16 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
           </MapContainer>
-          <div className="map-note">{finalMap ? "Final reviewed map: approved features only, including saved attribute corrections." : "Green: preliminary parcels. Blue: building footprints. Orange: road/access evidence. Click a feature to review and correct its attributes."}</div>
+          <div className="map-note">{finalMap ? "Final reviewed map: approved features only." : "Green: preliminary parcels. Blue: building footprints. Orange: road/access evidence. Click a feature to review it."}</div>
         </div>
       </section>
     </main>
