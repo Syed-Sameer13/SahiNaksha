@@ -1,10 +1,13 @@
 # Optional local AI stack for SahiNaksha.
 # Base backend dependencies remain in requirements.txt.
 
+# Building-specific aerial segmentation (HOTOSM DINOv3 + UperNet, ONNX)
+onnxruntime>=1.18.0
+
 # Custom few-shot segmentation model training/inference
 ultralytics>=8.3.0
 
-# SAM 2 / legacy SAM fallback
+# SAM fallback
 torch
 torchvision
 git+https://github.com/facebookresearch/segment-anything.git
