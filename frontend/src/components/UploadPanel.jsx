@@ -2,7 +2,16 @@ import { useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-export default function UploadPanel({ onComplete }) {
+function formatDate(value) {
+  if (!value) return "Unknown date";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "Unknown date";
+  }
+}
+
+export default function UploadPanel({ onComplete, history = [], onOpenPrevious, onRemovePrevious }) {
   const [file, setFile] = useState(null);
   const [reference, setReference] = useState(null);
   const [groundTruth, setGroundTruth] = useState(null);
@@ -10,6 +19,7 @@ export default function UploadPanel({ onComplete }) {
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPrevious, setShowPrevious] = useState(false);
 
   function chooseImage(f) {
     if (!f) return;
@@ -90,6 +100,58 @@ export default function UploadPanel({ onComplete }) {
         <div className="badge">SAHINAKSHA • AI CADASTRAL ENGINE</div>
         <h1>Sahi<span>Naksha</span></h1>
         <p>AI segmentation • GIS fusion • topology repair • survey validation</p>
+
+        <button
+          className="previous-works-button"
+          onClick={() => setShowPrevious((current) => !current)}
+          type="button"
+        >
+          <span>↩</span>
+          Previous Works
+          <small>{history.length}</small>
+        </button>
+
+        {showPrevious && (
+          <div className="previous-works-panel">
+            <div className="previous-works-header">
+              <div>
+                <span className="report-kicker">LOCAL HISTORY</span>
+                <h2>Previous analyses</h2>
+                <p>Open an earlier analysis with one click. Review decisions and attribute edits remain linked to its analysis ID.</p>
+              </div>
+              <button className="secondary-button" onClick={() => setShowPrevious(false)} type="button">Close</button>
+            </div>
+
+            {history.length === 0 ? (
+              <div className="previous-empty">
+                <strong>No previous works yet</strong>
+                <span>Completed analyses will automatically appear here.</span>
+              </div>
+            ) : (
+              <div className="previous-list">
+                {history.map((item) => (
+                  <div className="previous-item" key={item.analysis_id}>
+                    <div className="previous-item-main">
+                      <strong>Analysis {item.analysis_id || "Unknown"}</strong>
+                      <span>{formatDate(item.saved_at)}</span>
+                      <small>
+                        {item.buildings?.features?.length || 0} buildings · {item.roads?.features?.length || 0} roads · {item.parcels?.features?.length || 0} parcels
+                      </small>
+                    </div>
+                    <div className="previous-item-actions">
+                      <button className="primary-button compact" type="button" onClick={() => onOpenPrevious(item)}>
+                        Open Analysis
+                      </button>
+                      <button className="secondary-button compact" type="button" onClick={() => onRemovePrevious(item.analysis_id)}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="upload-card">
           <h2>Generate a preliminary cadastral map</h2>
