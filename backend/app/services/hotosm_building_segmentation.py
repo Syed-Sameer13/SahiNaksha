@@ -14,8 +14,7 @@ import numpy as np
 
 from .geojson_service import feature_collection
 
-MODEL_DEFAULT = Path(__file__).resolve().parents[../../] / "models" / "hotosm_dinov3s_buildings.onnx"
-MODEL_URL = "https://huggingface.co/hotosm/dinov3s-buildings/resolve/main/model.onnx?download=true"
+MODEL_DEFAULT = Path(__file__).resolve().parents[2] / "models" / "hotosm_dinov3s_buildings.onnx"
 MODEL_SIZE = 256
 STRIDE_DEFAULT = 192
 THRESHOLD_DEFAULT = 0.4371
@@ -60,10 +59,8 @@ def _prepare(tile: np.ndarray) -> np.ndarray:
 
 def _predict_tile(session, tile: np.ndarray) -> np.ndarray:
     input_name = session.get_inputs()[0].name
-    output = session.run(None, {input_name: _prepare(tile)})[0]
-    output = np.asarray(output)
+    output = np.asarray(session.run(None, {input_name: _prepare(tile)})[0])
     if output.ndim == 4:
-        # Reference implementation uses logits[:, 0] as the building channel.
         logits = output[:, 0]
     elif output.ndim == 3:
         logits = output
@@ -73,20 +70,21 @@ def _predict_tile(session, tile: np.ndarray) -> np.ndarray:
 
 
 def _windows(height: int, width: int, stride: int):
-    xs = list(range(0, max(width - MODEL_SIZE, 0) + 1, stride))
-    ys = list(range(0, max(height - MODEL_SIZE, 0) + 1, stride))
-    if not xs or xs[-1] != max(width - MODEL_SIZE, 0):
-        xs.append(max(width - MODEL_SIZE, 0))
-    if not ys or ys[-1] != max(height - MODEL_SIZE, 0):
-        ys.append(max(height - MODEL_SIZE, 0))
+    max_x = max(width - MODEL_SIZE, 0)
+    max_y = max(height - MODEL_SIZE, 0)
+    xs = list(range(0, max_x + 1, stride)) or [0]
+    ys = list(range(0, max_y + 1, stride)) or [0]
+    if xs[-1] != max_x:
+        xs.append(max_x)
+    if ys[-1] != max_y:
+        ys.append(max_y)
     return [(x, y) for y in ys for x in xs]
 
 
 def _to_geojson(mask: np.ndarray, width: int, height: int, min_area: int = 150):
-    mask = (mask.astype(np.uint8) * 255)
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    binary = (mask.astype(np.uint8) * 255)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     features = []
     for idx, contour in enumerate(contours, 1):
         area = cv2.contourArea(contour)
@@ -132,8 +130,9 @@ def run_hotosm_building_segmentation(image_path: str):
     threshold = float(os.getenv("SAHINAKSHA_HOTOSM_THRESHOLD", str(THRESHOLD_DEFAULT)))
     probability = np.zeros((height, width), dtype=np.float32)
     weights = np.zeros((height, width), dtype=np.float32)
+    windows = _windows(height, width, stride)
 
-    for x, y in _windows(height, width, stride):
+    for x, y in windows:
         crop = image[y:min(y + MODEL_SIZE, height), x:min(x + MODEL_SIZE, width)]
         actual_h, actual_w = crop.shape[:2]
         if actual_h < MODEL_SIZE or actual_w < MODEL_SIZE:
@@ -147,15 +146,14 @@ def run_hotosm_building_segmentation(image_path: str):
         weights[y:y + actual_h, x:x + actual_w] += 1.0
 
     probability /= np.maximum(weights, 1.0)
-    mask = probability >= threshold
-    buildings = _to_geojson(mask, width, height)
+    buildings = _to_geojson(probability >= threshold, width, height)
 
     return {"buildings": buildings, "roads": feature_collection([]), "parcels": feature_collection([])}, {
         "provider": "hotosm_dinov3s_buildings",
         "status": "ready",
         "threshold": threshold,
         "stride": stride,
-        "windows": len(_windows(height, width, stride)),
+        "windows": len(windows),
         "accepted_buildings": len(buildings["features"]),
         "model": str(model_path()),
     }
