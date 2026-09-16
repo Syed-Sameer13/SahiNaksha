@@ -31,8 +31,13 @@ def analyze_image(
         result["parcels"] = parcels
         result["cadastral_mode"] = "drone_refined_existing_gis"
     else:
-        # Never infer authoritative ownership parcels from RGB imagery alone.
-        result["cadastral_mode"] = "feature_evidence_only" if ai_result is None else "preliminary_feature_extraction"
+        # RGB imagery alone cannot reveal authoritative ownership boundaries.
+        # The current AI path may provide preliminary road-separated land blocks
+        # for a prototype visualization, but these are explicitly non-legal.
+        result["cadastral_mode"] = ai_info.get(
+            "parcel_mode",
+            "feature_evidence_only" if ai_result is None else "preliminary_feature_extraction",
+        )
 
     result["parcels"], topology_stats = repair_and_validate_parcels(result["parcels"])
     result["parcels"] = classify_parcel_landuse(result["parcels"], image_path)
