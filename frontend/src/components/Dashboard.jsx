@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
-import { MapContainer, ImageOverlay, GeoJSON } from "react-leaflet";
-import { CRS } from "leaflet";
+import { MapContainer, ImageOverlay, GeoJSON, Marker } from "react-leaflet";
+import { CRS, divIcon } from "leaflet";
 
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 const BOUNDS = [[0, 0], [100, 100]];
@@ -84,6 +84,56 @@ function readStorage(key, fallback) {
   }
 }
 
+function editableVertices(geometry) {
+  if (!geometry) return [];
+  if (geometry.type === "Polygon") {
+    return geometry.coordinates.flatMap((ring, ringIndex) => ring.slice(0, -1).map((point, pointIndex) => ({ ringIndex, pointIndex, point })));
+  }
+  if (geometry.type === "MultiPolygon") {
+    return geometry.coordinates.flatMap((polygon, polygonIndex) => polygon.flatMap((ring, ringIndex) => ring.slice(0, -1).map((point, pointIndex) => ({ polygonIndex, ringIndex, pointIndex, point }))));
+  }
+  return [];
+}
+
+function updateGeometryPoint(geometry, vertex, lat, lng) {
+  const next = JSON.parse(JSON.stringify(geometry));
+  const point = [lng, lat];
+  if (next.type === "Polygon") {
+    next.coordinates[vertex.ringIndex][vertex.pointIndex] = point;
+    const ring = next.coordinates[vertex.ringIndex];
+    if (vertex.pointIndex === 0 || vertex.pointIndex === ring.length - 1) ring[ring.length - 1] = [...point];
+  } else if (next.type === "MultiPolygon") {
+    const ring = next.coordinates[vertex.polygonIndex][vertex.ringIndex];
+    ring[vertex.pointIndex] = point;
+    if (vertex.pointIndex === 0 || vertex.pointIndex === ring.length - 1) ring[ring.length - 1] = [...point];
+  }
+  return next;
+}
+
+const vertexIcon = divIcon({
+  className: "geometry-vertex",
+  html: "<span></span>",
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+
+function GeometryEditor({ feature, onChange }) {
+  const vertices = editableVertices(feature?.geometry);
+  if (!feature || !vertices.length) return null;
+  return <>{vertices.map((vertex) => (
+    <Marker
+      key={`${vertex.polygonIndex ?? "p"}-${vertex.ringIndex}-${vertex.pointIndex}`}
+      position={[vertex.point[1], vertex.point[0]]}
+      icon={vertexIcon}
+      draggable
+      eventHandlers={{ dragend: (event) => {
+        const { lat, lng } = event.target.getLatLng();
+        onChange(updateGeometryPoint(feature.geometry, vertex, lat, lng));
+      } }}
+    />
+  ))}</>;
+}
+
 export default function Dashboard({ result, onReset }) {
   const hasParcels = (result.parcels?.features?.length || 0) > 0;
   const storageKey = `${STORAGE_PREFIX}${result.analysis_id || "current"}`;
@@ -91,24 +141,19 @@ export default function Dashboard({ result, onReset }) {
   const [selected, setSelected] = useState(null);
   const [review, setReview] = useState(() => readStorage(`${storageKey}:decisions`, {}));
   const [edits, setEdits] = useState(() => readStorage(`${storageKey}:edits`, {}));
+  const [geometryEdits, setGeometryEdits] = useState(() => readStorage(`${storageKey}:geometry`, {}));
   const [editing, setEditing] = useState(false);
+  const [geometryEditing, setGeometryEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [reviewerName, setReviewerName] = useState(() => localStorage.getItem(`${storageKey}:reviewer`) || "");
   const [finalMap, setFinalMap] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
 
-  useEffect(() => {
-    try { localStorage.setItem(`${storageKey}:decisions`, JSON.stringify(review)); } catch { /* storage unavailable */ }
-  }, [storageKey, review]);
-
-  useEffect(() => {
-    try { localStorage.setItem(`${storageKey}:edits`, JSON.stringify(edits)); } catch { /* storage unavailable */ }
-  }, [storageKey, edits]);
-
-  useEffect(() => {
-    try { localStorage.setItem(`${storageKey}:reviewer`, reviewerName); } catch { /* storage unavailable */ }
-  }, [storageKey, reviewerName]);
+  useEffect(() => { try { localStorage.setItem(`${storageKey}:decisions`, JSON.stringify(review)); } catch {} }, [storageKey, review]);
+  useEffect(() => { try { localStorage.setItem(`${storageKey}:edits`, JSON.stringify(edits)); } catch {} }, [storageKey, edits]);
+  useEffect(() => { try { localStorage.setItem(`${storageKey}:geometry`, JSON.stringify(geometryEdits)); } catch {} }, [storageKey, geometryEdits]);
+  useEffect(() => { try { localStorage.setItem(`${storageKey}:reviewer`, reviewerName); } catch {} }, [storageKey, reviewerName]);
 
   const c = {
     parcels: result.parcels?.features?.length || 0,
@@ -117,17 +162,21 @@ export default function Dashboard({ result, onReset }) {
     issues: result.validation?.issues?.length || 0,
   };
 
+  const geometryOf = (feature) => geometryEdits[featureId(feature)] || feature.geometry;
+  const displayFeature = (feature) => ({ ...feature, geometry: geometryOf(feature) });
+
   const stats = useMemo(() => {
-    const buildingArea = collectionArea(result.buildings);
-    const roadArea = collectionArea(result.roads);
-    const parcelArea = collectionArea(result.parcels);
+    const areaFor = (collection) => (collection?.features || []).reduce((sum, f) => sum + polygonArea(geometryOf(f)), 0);
+    const buildingArea = areaFor(result.buildings);
+    const roadArea = areaFor(result.roads);
+    const parcelArea = areaFor(result.parcels);
     const reviewed = Object.values(review);
     const approved = reviewed.filter((v) => v === "Approved").length;
     const needsReview = reviewed.filter((v) => v === "Needs Review").length;
     const rejected = reviewed.filter((v) => v === "Rejected").length;
     const totalFeatures = c.parcels + c.buildings + c.roads;
     return { buildingArea, roadArea, parcelArea, reviewed: reviewed.length, approved, needsReview, rejected, pending: Math.max(0, totalFeatures - reviewed.length), buildingCoverage: buildingArea, roadCoverage: roadArea };
-  }, [result, review, c.parcels, c.buildings, c.roads]);
+  }, [result, review, geometryEdits, c.parcels, c.buildings, c.roads]);
 
   const aiReady = result.ai_engine?.status === "ready";
   const selectedId = featureId(selected);
@@ -140,13 +189,16 @@ export default function Dashboard({ result, onReset }) {
   const totalFeatures = c.parcels + c.buildings + c.roads;
   const currentProperties = selected ? { ...(selected.properties || {}), ...(edits[selectedId] || {}) } : {};
   const fields = FIELD_CONFIG[selectedType] || FIELD_CONFIG.building;
+  const selectedGeometryFeature = selected ? displayFeature(selected) : null;
 
   const toggle = (key) => setLayers((current) => ({ ...current, [key]: !current[key] }));
 
   const selectFeature = (feature) => {
     const id = featureId(feature);
-    setSelected(feature);
+    const merged = displayFeature(feature);
+    setSelected(merged);
     setEditing(false);
+    setGeometryEditing(false);
     setDraft({ ...(feature.properties || {}), ...(edits[id] || {}) });
     setSaveMessage("");
     setFinalized(false);
@@ -156,14 +208,33 @@ export default function Dashboard({ result, onReset }) {
     if (!selected) return;
     setDraft(currentProperties);
     setEditing(true);
+    setGeometryEditing(false);
     setSaveMessage("");
     setFinalized(false);
   };
 
-  const cancelEditing = () => {
-    setDraft(currentProperties);
+  const startGeometryEditing = () => {
+    if (!selected) return;
     setEditing(false);
+    setGeometryEditing(true);
+    setFinalized(false);
+    setSaveMessage("Drag the white vertices on the map to correct the boundary. Changes save automatically.");
   };
+
+  const finishGeometryEditing = () => {
+    setGeometryEditing(false);
+    setSaveMessage("Geometry saved locally ✓");
+    window.setTimeout(() => setSaveMessage(""), 2200);
+  };
+
+  const handleGeometryChange = (geometry) => {
+    if (!selectedId) return;
+    setGeometryEdits((current) => ({ ...current, [selectedId]: geometry }));
+    setSelected((current) => current ? { ...current, geometry } : current);
+    setFinalized(false);
+  };
+
+  const cancelEditing = () => { setDraft(currentProperties); setEditing(false); };
 
   const saveEdits = () => {
     if (!selectedId) return;
@@ -189,6 +260,7 @@ export default function Dashboard({ result, onReset }) {
     const decision = review[id];
     return {
       ...feature,
+      geometry: geometryOf(feature),
       properties: {
         ...(feature.properties || {}),
         ...saved,
@@ -216,28 +288,26 @@ export default function Dashboard({ result, onReset }) {
         project: "SahiNaksha",
         stage: "human_reviewed_final_gis",
         analysis_id: result.analysis_id,
-        source: "AI extraction + human review + attribute correction",
+        source: "AI extraction + human review + attribute and geometry correction",
         approved_feature_count: features.length,
         edited_feature_count: Object.keys(edits).length,
+        geometry_edited_feature_count: Object.keys(geometryEdits).length,
         reviewed_by: reviewerName.trim() || "not specified",
         persistence: "browser_local_storage",
         legal_status: "prototype_output_requires_authoritative_cadastral_and_survey_validation",
       },
     };
-  }, [result, review, edits, reviewerName]);
+  }, [result, review, edits, geometryEdits, reviewerName]);
 
   const exportFile = () => window.open(API + "/analysis/" + result.analysis_id + "/export", "_blank");
 
   const clearSavedReview = () => {
-    if (!window.confirm("Clear saved review decisions and attribute edits for this analysis?")) return;
+    if (!window.confirm("Clear saved review decisions, attribute edits and geometry edits for this analysis?")) return;
     try {
       localStorage.removeItem(`${storageKey}:decisions`);
       localStorage.removeItem(`${storageKey}:edits`);
-      setReview({});
-      setEdits({});
-      setSelected(null);
-      setEditing(false);
-      setFinalized(false);
+      localStorage.removeItem(`${storageKey}:geometry`);
+      setReview({}); setEdits({}); setGeometryEdits({}); setSelected(null); setEditing(false); setGeometryEditing(false); setFinalized(false);
       setSaveMessage("Saved review cleared");
       window.setTimeout(() => setSaveMessage(""), 2200);
     } catch { setSaveMessage("Could not clear local storage"); }
@@ -255,37 +325,20 @@ export default function Dashboard({ result, onReset }) {
     setFinalized(true);
   };
 
+  const renderCollection = (collection) => ({ ...collection, features: (collection?.features || []).map(displayFeature) });
+
   return (
     <main className="dashboard">
       <header className="topbar">
-        <div>
-          <div className="brand">Sahi<span>Naksha</span></div>
-          <small>{aiReady ? "AI analysis complete · human review enabled" : "AI analysis unavailable · fallback processing active"}</small>
-        </div>
-        <div className="actions">
-          <button className="secondary-button" onClick={exportFile}>Export Raw GeoJSON</button>
-          <button className="secondary-button" onClick={onReset}>New Analysis</button>
-        </div>
+        <div><div className="brand">Sahi<span>Naksha</span></div><small>{aiReady ? "AI analysis complete · human review enabled" : "AI analysis unavailable · fallback processing active"}</small></div>
+        <div className="actions"><button className="secondary-button" onClick={exportFile}>Export Raw GeoJSON</button><button className="secondary-button" onClick={onReset}>New Analysis</button></div>
       </header>
 
-      <section className="summary-grid">
-        <div><b>{c.parcels}</b><span>Preliminary Parcel Blocks</span></div>
-        <div><b>{c.buildings}</b><span>Building Footprints</span></div>
-        <div><b>{c.roads}</b><span>Road / Access Evidence</span></div>
-        <div><b>{c.issues}</b><span>Topology Issues</span></div>
-      </section>
+      <section className="summary-grid"><div><b>{c.parcels}</b><span>Preliminary Parcel Blocks</span></div><div><b>{c.buildings}</b><span>Building Footprints</span></div><div><b>{c.roads}</b><span>Road / Access Evidence</span></div><div><b>{c.issues}</b><span>Topology Issues</span></div></section>
 
       <section className="review-report">
-        <div className="report-heading">
-          <div><span className="report-kicker">AI REVIEW REPORT</span><h2>Model findings & quality summary</h2><p>Numbers below are calculated from this analysis result. Accuracy metrics appear only when ground-truth data is supplied.</p></div>
-          <div className={"engine-pill " + (aiReady ? "ready" : "fallback")}>{aiReady ? "● Model ready" : "● Fallback"}</div>
-        </div>
-        <div className="report-grid">
-          <div className="report-card"><span>AI model</span><strong>{provider.replaceAll("_", " ")}</strong><small>{totalWindows ? `${totalWindows} image windows analysed` : "Model metadata not reported"}</small></div>
-          <div className="report-card"><span>Detection threshold</span><strong>{threshold != null ? threshold : "—"}</strong><small>Configured inference threshold</small></div>
-          <div className="report-card"><span>Feature coverage</span><strong>{pct((stats.buildingCoverage + stats.roadCoverage) / 100)}</strong><small>Relative mapped area; not ground area</small></div>
-          <div className="report-card"><span>Review progress</span><strong>{stats.reviewed}/{totalFeatures}</strong><small>{stats.pending} feature(s) still pending</small></div>
-        </div>
+        <div className="report-heading"><div><span className="report-kicker">AI REVIEW REPORT</span><h2>Model findings & quality summary</h2><p>Numbers below are calculated from this analysis result. Accuracy metrics appear only when ground-truth data is supplied.</p></div><div className={"engine-pill " + (aiReady ? "ready" : "fallback")}>{aiReady ? "● Model ready" : "● Fallback"}</div></div>
+        <div className="report-grid"><div className="report-card"><span>AI model</span><strong>{provider.replaceAll("_", " ")}</strong><small>{totalWindows ? `${totalWindows} image windows analysed` : "Model metadata not reported"}</small></div><div className="report-card"><span>Detection threshold</span><strong>{threshold != null ? threshold : "—"}</strong><small>Configured inference threshold</small></div><div className="report-card"><span>Feature coverage</span><strong>{pct((stats.buildingCoverage + stats.roadCoverage) / 100)}</strong><small>Relative mapped area; not ground area</small></div><div className="report-card"><span>Review progress</span><strong>{stats.reviewed}/{totalFeatures}</strong><small>{stats.pending} feature(s) still pending</small></div></div>
         <div className="report-columns">
           <div className="report-section"><h3>Detected data</h3><div className="metric-row"><span>Buildings</span><b>{c.buildings}</b></div><div className="metric-row"><span>Road/access segments</span><b>{c.roads}</b></div><div className="metric-row"><span>Preliminary land blocks</span><b>{c.parcels}</b></div><div className="metric-row"><span>Topology issues</span><b>{c.issues}</b></div></div>
           <div className="report-section"><h3>Mapped area (relative image units²)</h3><div className="metric-row"><span>Building footprint area</span><b>{stats.buildingArea.toFixed(1)}</b></div><div className="metric-row"><span>Road evidence area</span><b>{stats.roadArea.toFixed(1)}</b></div><div className="metric-row"><span>Parcel block area</span><b>{stats.parcelArea.toFixed(1)}</b></div><div className="metric-row"><span>Topology repairs</span><b>{result.topology_stats?.repaired_geometries || 0}</b></div></div>
@@ -297,11 +350,7 @@ export default function Dashboard({ result, onReset }) {
 
       <section className="next-steps">
         <div className="next-steps-heading"><div><span className="report-kicker">POST-REVIEW WORKFLOW</span><h2>From reviewed AI output to final GIS</h2><p>Only approved features are included in the final prototype GIS package.</p></div><div className={"workflow-status " + (finalized ? "complete" : "active")}>{finalized ? "✓ GIS output ready" : "Review → Map → GIS"}</div></div>
-        <div className="workflow-grid">
-          <div className={"workflow-step " + (stats.reviewed ? "done" : "") }><div className="step-number">1</div><div><b>Human review</b><span>{stats.reviewed}/{totalFeatures} features reviewed</span></div></div>
-          <div className={"workflow-step " + (finalMap ? "done" : "") }><div className="step-number">2</div><div><b>Final map validation</b><span>{finalMap ? "Approved features displayed" : "Compare reviewed features on map"}</span></div></div>
-          <div className={"workflow-step " + (finalized ? "done" : "") }><div className="step-number">3</div><div><b>Final GIS output</b><span>{finalGIS.features.length} approved features prepared</span></div></div>
-        </div>
+        <div className="workflow-grid"><div className={"workflow-step " + (stats.reviewed ? "done" : "") }><div className="step-number">1</div><div><b>Human review</b><span>{stats.reviewed}/{totalFeatures} features reviewed</span></div></div><div className={"workflow-step " + (finalMap ? "done" : "") }><div className="step-number">2</div><div><b>Final map validation</b><span>{finalMap ? "Approved features displayed" : "Compare reviewed features on map"}</span></div></div><div className={"workflow-step " + (finalized ? "done" : "") }><div className="step-number">3</div><div><b>Final GIS output</b><span>{finalGIS.features.length} approved features prepared</span></div></div></div>
         <div className="next-actions"><button className="secondary-button" onClick={() => setFinalMap((value) => !value)}>{finalMap ? "Show AI Map" : "Open Final Reviewed Map"}</button><button className="primary-button inline-button" disabled={!stats.approved} onClick={downloadFinalGIS}>Generate & Download Final GIS</button></div>
         {!stats.approved && <p className="workflow-note">Approve at least one feature to generate the final GIS output. Features marked “Needs Review” or “Rejected” are not included.</p>}
         {stats.needsReview > 0 && <p className="workflow-warning">{stats.needsReview} feature(s) are still marked “Needs Review”. Resolve them before treating the dataset as final.</p>}
@@ -318,34 +367,32 @@ export default function Dashboard({ result, onReset }) {
           <hr />
           <h3>Human Review</h3>
           {selected ? <>
-            <div className="review-editor-header"><div><span className="feature-type-badge">{selectedType}</span><small>{selectedId}</small></div>{!editing && <button className="secondary-button edit-button" onClick={startEditing}>Edit Attributes</button>}</div>
-            {editing ? <div className="edit-form">
-              {fields.map((field) => <label key={field.key} className="edit-field"><span>{field.label}</span>{field.type === "select" ? <select value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))}><option value="">Select...</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea rows={3} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} /> : <input type={field.type} min={field.min} step={field.step} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} />}</label>)}
-              <div className="editor-actions"><button className="primary-button" onClick={saveEdits}>Save Changes</button><button className="secondary-button" onClick={cancelEditing}>Cancel</button></div>
-            </div> : <div className="details">{Object.entries(currentProperties).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{String(value)}</b></div>)}</div>}
+            <div className="review-editor-header"><div><span className="feature-type-badge">{selectedType}</span><small>{selectedId}</small></div><div className="geometry-tools">{!editing && !geometryEditing && <button className="secondary-button edit-button" onClick={startEditing}>Edit Attributes</button>}{!editing && !geometryEditing && <button className="secondary-button edit-button geometry-edit-button" onClick={startGeometryEditing}>Edit Boundary</button>}</div></div>
+            {geometryEditing && <div className="geometry-help"><b>Boundary editing active</b><span>Drag the white vertex handles directly on the map. Move each corner until it matches the image. Your changes are saved automatically.</span><button className="primary-button" onClick={finishGeometryEditing}>Finish Boundary Edit</button></div>}
+            {editing ? <div className="edit-form">{fields.map((field) => <label key={field.key} className="edit-field"><span>{field.label}</span>{field.type === "select" ? <select value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))}><option value="">Select...</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : field.type === "textarea" ? <textarea rows={3} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} /> : <input type={field.type} min={field.min} step={field.step} value={draft[field.key] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [field.key]: e.target.value }))} />}</label>)}<div className="editor-actions"><button className="primary-button" onClick={saveEdits}>Save Changes</button><button className="secondary-button" onClick={cancelEditing}>Cancel</button></div></div> : !geometryEditing && <div className="details">{Object.entries(currentProperties).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{String(value)}</b></div>)}</div>}
             {saveMessage && <p className="save-message">{saveMessage}</p>}
             <label className="reviewer-field"><span>Reviewer name</span><input value={reviewerName} placeholder="Enter reviewer name" onChange={(e) => setReviewerName(e.target.value)} /></label>
             <div className="review-buttons"><button onClick={() => mark("Approved")}>Approve</button><button onClick={() => mark("Needs Review")}>Review</button><button onClick={() => mark("Rejected")}>Reject</button></div>
             {status && <p className={"review-status " + status.toLowerCase().replaceAll(" ", "-")}>{status} · saved locally</p>}
-          </> : <p className="muted">Click a building, road or parcel block to inspect its properties, edit the data and record a review decision.</p>}
+          </> : <p className="muted">Click a building, road or parcel block to inspect it. Use <b>Edit Boundary</b> to move its vertices directly on the image map for precise correction.</p>}
           <hr />
           <div className="storage-header"><h3>Local persistence</h3><span>Browser storage</span></div>
-          <p className="muted">Edits, review decisions and reviewer name are saved automatically in this browser for this analysis.</p>
+          <p className="muted">Attribute edits, boundary edits, review decisions and reviewer name are saved automatically in this browser for this analysis.</p>
           <button className="secondary-button" onClick={clearSavedReview}>Clear Saved Review</button>
           <hr />
-          <h3>Validation status</h3>
-          <p className="muted">{c.issues ? `${c.issues} issue(s) require review.` : "No parcel topology issues detected."}</p>
+          <h3>Validation status</h3><p className="muted">{c.issues ? `${c.issues} issue(s) require review.` : "No parcel topology issues detected."}</p>
         </aside>
 
         <div className="map-wrap">
           <MapContainer crs={CRS.Simple} bounds={BOUNDS} boundsOptions={{ padding: [20, 20] }} minZoom={-2} maxZoom={4} zoom={0} style={{ height: "100%", width: "100%", background: "#111827" }}>
             {result.original_image_url && <ImageOverlay url={result.original_image_url} bounds={BOUNDS} opacity={0.90} />}
-            {!finalMap && layers.parcels && <GeoJSON data={result.parcels} style={{ color: "#22c55e", weight: 2.5, fillOpacity: 0.10 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
-            {!finalMap && layers.buildings && <GeoJSON data={result.buildings} style={{ color: "#38bdf8", weight: 2, fillOpacity: 0.08 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
-            {!finalMap && layers.roads && <GeoJSON data={result.roads} style={{ color: "#f59e0b", weight: 3, fillOpacity: 0.06 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
+            {!finalMap && layers.parcels && <GeoJSON data={renderCollection(result.parcels)} style={{ color: "#22c55e", weight: geometryEditing && selectedType === "parcel" ? 4 : 2.5, fillOpacity: 0.10 }} onEachFeature={(f, l) => l.on({ click: () => !geometryEditing && selectFeature(f) })} />}
+            {!finalMap && layers.buildings && <GeoJSON data={renderCollection(result.buildings)} style={{ color: "#38bdf8", weight: geometryEditing && selectedType === "building" ? 4 : 2, fillOpacity: 0.08 }} onEachFeature={(f, l) => l.on({ click: () => !geometryEditing && selectFeature(f) })} />}
+            {!finalMap && layers.roads && <GeoJSON data={renderCollection(result.roads)} style={{ color: "#f59e0b", weight: geometryEditing && selectedType === "road" ? 4 : 3, fillOpacity: 0.06 }} onEachFeature={(f, l) => l.on({ click: () => !geometryEditing && selectFeature(f) })} />}
             {finalMap && <GeoJSON data={finalGIS} style={{ color: "#72d89b", weight: 3, fillOpacity: 0.16 }} onEachFeature={(f, l) => l.on({ click: () => selectFeature(f) })} />}
+            {geometryEditing && selectedGeometryFeature && <GeometryEditor feature={selectedGeometryFeature} onChange={handleGeometryChange} />}
           </MapContainer>
-          <div className="map-note">{finalMap ? "Final reviewed map: approved features only." : "Green: preliminary parcels. Blue: building footprints. Orange: road/access evidence. Click a feature to review it."}</div>
+          <div className="map-note">{geometryEditing ? "✦ Boundary edit mode: drag the white handles to align the line with the aerial image." : finalMap ? "Final reviewed map: approved features only." : "Green: preliminary parcels. Blue: building footprints. Orange: road/access evidence. Click a feature to review it."}</div>
         </div>
       </section>
     </main>
