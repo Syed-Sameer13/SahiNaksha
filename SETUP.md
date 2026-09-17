@@ -1,620 +1,143 @@
-# SahiNaksha — Local Setup and Testing
+# SahiNaksha — Complete Setup & Run Guide
 
-This guide explains how to run the complete SahiNaksha MVP on **Windows** and **Linux Mint Cinnamon**.
+This is the fastest way to install and run the complete **SahiNaksha** MVP locally.
+
+SahiNaksha has two applications:
+
+```text
+SahiNaksha/
+├── backend/     # FastAPI + AI/CV processing
+└── frontend/    # React + Vite + Leaflet GIS dashboard
+```
 
 ---
 
 # 1. Prerequisites
 
-SahiNaksha requires:
+Install these once:
 
 - Git
-- Python 3.10 or newer
-- Node.js 18 or newer
+- Python **3.10+**
+- Node.js **18+** (Node 20 LTS recommended)
 - npm
 
-The backend uses:
-
-- FastAPI
-- Uvicorn
-- OpenCV
-- NumPy
-- Shapely
-
-The frontend uses:
-
-- React
-- Vite
-- Leaflet
-
----
-
-# 2. Clone the Project
-
-## Windows PowerShell
-
-Open PowerShell or the VS Code terminal:
-
-```powershell
-git clone https://github.com/Syed-Sameer13/SahiNaksha.git
-cd SahiNaksha
-```
-
-If the repository already exists:
-
-```powershell
-cd SahiNaksha
-git pull origin main
-```
-
-## Linux Mint Cinnamon
-
-Open Terminal:
+Check:
 
 ```bash
-git clone https://github.com/Syed-Sameer13/SahiNaksha.git
-cd SahiNaksha
-```
-
-If the repository already exists:
-
-```bash
-cd SahiNaksha
-git pull origin main
-```
-
----
-
-# 3. Windows Setup
-
-## Step 1 — Install required software
-
-Install:
-
-### Git
-
-```text
-https://git-scm.com/download/win
-```
-
-### Python
-
-```text
-https://www.python.org/downloads/
-```
-
-During installation, select:
-
-```text
-Add Python to PATH
-```
-
-### Node.js
-
-Install the LTS version:
-
-```text
-https://nodejs.org/
-```
-
-Verify installation:
-
-```powershell
 git --version
 python --version
 node --version
 npm --version
 ```
 
+On Linux Mint, use `python3` if `python` is unavailable.
+
 ---
 
-## Step 2 — Backend setup
+# 2. Get the Project
 
-Open Terminal 1 inside the project:
+If you do not have the repository:
+
+```bash
+git clone https://github.com/Syed-Sameer13/SahiNaksha.git
+cd SahiNaksha
+```
+
+If you already cloned it:
+
+```bash
+cd SahiNaksha
+git pull origin main
+```
+
+---
+
+# 3. FIRST-TIME INITIALIZATION
+
+Do this **only once** on a new computer.
+
+## Windows PowerShell
+
+From the SahiNaksha root folder:
 
 ```powershell
 cd backend
 python -m venv venv
-```
-
-### Activate the virtual environment
-
-```powershell
 .\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+cd ..\frontend
+npm install
+cd ..
 ```
 
-If PowerShell blocks activation:
+If PowerShell blocks virtual-environment activation:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\venv\Scripts\Activate.ps1
+.\backend\venv\Scripts\Activate.ps1
 ```
 
-You should see something similar to:
+### Windows Python alternative
 
-```text
-(venv) PS ...\SahiNaksha\backend>
-```
-
-### Install dependencies
+If `python` is not recognized:
 
 ```powershell
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-If a required package is missing:
-
-```powershell
-pip install fastapi uvicorn python-multipart opencv-python numpy shapely
-```
-
-### Start the backend
-
-```powershell
-uvicorn app.main:app --reload
-```
-
-Expected:
-
-```text
-Uvicorn running on http://127.0.0.1:8000
-```
-
-Test:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-API documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-Keep this terminal running.
-
----
-
-## Step 3 — Frontend setup
-
-Open **Terminal 2** from the project root:
-
-```powershell
+py -m venv backend\venv
+.\backend\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r backend\requirements.txt
 cd frontend
 npm install
-npm run dev
+cd ..
 ```
-
-Vite will display a URL similar to:
-
-```text
-http://localhost:5173/
-```
-
-Open it in your browser.
 
 ---
 
-# 4. Linux Mint Cinnamon Setup
+## Linux Mint / Ubuntu
 
-## Step 1 — Update the system
-
-Open Terminal:
+From the SahiNaksha root folder:
 
 ```bash
 sudo apt update
-sudo apt upgrade -y
+sudo apt install -y git python3 python3-pip python3-venv nodejs npm
 ```
 
----
-
-## Step 2 — Install Git and Python tools
-
-```bash
-sudo apt install -y git python3 python3-pip python3-venv
-```
-
-Verify:
-
-```bash
-git --version
-python3 --version
-pip3 --version
-```
-
----
-
-## Step 3 — Install Node.js
-
-First try the distribution package:
-
-```bash
-sudo apt install -y nodejs npm
-```
-
-Verify:
+Check Node.js:
 
 ```bash
 node --version
-npm --version
 ```
 
-### Recommended: use NodeSource if Node.js is older than version 18
+Node 18+ is required. If the distribution version is older, install a current Node.js LTS release before continuing.
+
+Then initialize SahiNaksha:
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-```
-
-Verify again:
-
-```bash
-node --version
-npm --version
-```
-
-SahiNaksha should use Node.js 18 or newer.
-
----
-
-## Step 4 — Backend setup
-
-From the project root:
-
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Expected:
-
-```text
-(venv) user@computer:~/SahiNaksha/backend$
-```
-
-Upgrade pip and install dependencies:
-
-```bash
+python3 -m venv backend/venv
+source backend/venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### If OpenCV installation causes problems
-
-Install common system libraries:
-
-```bash
-sudo apt install -y libgl1 libglib2.0-0
-```
-
-Then retry:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Start the backend
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Expected:
-
-```text
-Uvicorn running on http://127.0.0.1:8000
-```
-
-Test in the browser:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-API documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-Keep this terminal running.
-
----
-
-## Step 5 — Frontend setup
-
-Open a **second terminal**.
-
-Go to the frontend:
-
-```bash
-cd ~/SahiNaksha/frontend
-```
-
-If your repository is located elsewhere, use that location instead.
-
-Install packages:
-
-```bash
+pip install -r backend/requirements.txt
+cd frontend
 npm install
+cd ..
 ```
 
-Start Vite:
-
-```bash
-npm run dev
-```
-
-Open the URL printed by Vite, usually:
-
-```text
-http://localhost:5173/
-```
-
----
-
-# 5. Complete MVP Test
-
-The testing procedure is identical on Windows and Linux.
-
-## Step 1 — Open SahiNaksha
-
-Open:
-
-```text
-http://localhost:5173/
-```
-
-## Step 2 — Upload an image
-
-Supported formats:
-
-- JPG
-- JPEG
-- PNG
-
-For the best OpenCV results, use:
-
-- Top-down aerial imagery
-- Clearly visible buildings
-- Clearly visible roads
-- Good contrast
-- Minimal labels
-- No map controls or screenshots containing browser UI
-
----
-
-## Step 3 — Run analysis
-
-Click:
-
-```text
-Analyze Image
-```
-
-Expected processing flow:
-
-```text
-Aerial Image
-    ↓
-FastAPI Upload API
-    ↓
-OpenCV Preprocessing
-    ↓
-Edge Detection
-    ↓
-Building Candidates
-    ↓
-Road Candidates
-    ↓
-Preliminary Parcel Candidates
-    ↓
-Shapely Validation
-    ↓
-GeoJSON
-    ↓
-Interactive GIS Dashboard
-```
-
----
-
-# 6. Dashboard Test Checklist
-
-## Layer controls
-
-Test:
-
-- [ ] Parcels can be toggled
-- [ ] Buildings can be toggled
-- [ ] Roads can be toggled
-
-## Feature inspection
-
-Click:
-
-- [ ] A building
-- [ ] A road
-- [ ] A parcel candidate
-
-Expected:
-
-```text
-Feature properties appear in the sidebar.
-```
-
-## Human review
-
-Select a feature and test:
-
-- [ ] Approve
-- [ ] Needs Review
-- [ ] Reject
-
-## Validation
-
-Check that the dashboard displays validation issues when geometry problems are found.
-
-## GeoJSON export
-
-Click:
-
-```text
-Export GeoJSON
-```
-
-The API endpoint is:
-
-```text
-GET /analysis/{analysis_id}/export
-```
-
----
-
-# 7. Troubleshooting
-
-## Windows: virtual environment will not activate
-
-Run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\venv\Scripts\Activate.ps1
-```
-
----
-
-## Windows: Python command not found
-
-Try:
-
-```powershell
-py --version
-py -m venv venv
-```
-
-Reinstall Python if necessary and ensure:
-
-```text
-Add Python to PATH
-```
-
-was selected during installation.
-
----
-
-## Linux Mint: python command not found
-
-Use:
-
-```bash
-python3
-```
-
-For example:
-
-```bash
-python3 -m venv venv
-```
-
----
-
-## Linux Mint: OpenCV fails to load
-
-Install:
+If OpenCV has system-library issues:
 
 ```bash
 sudo apt install -y libgl1 libglib2.0-0
 ```
 
-Then reinstall dependencies:
-
-```bash
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
 ---
 
-## Port 8000 is already in use
+# 4. RUN THE COMPLETE WEBSITE
 
-Stop the existing backend process or run:
+The backend and frontend must run at the same time.
 
-```bash
-uvicorn app.main:app --reload --port 8001
-```
+## Windows — Terminal 1: Backend
 
-If you change the backend port, update the frontend API URL accordingly.
-
----
-
-## Frontend cannot reach the backend
-
-Confirm:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-works first.
-
-Then ensure the frontend API configuration points to:
-
-```text
-http://127.0.0.1:8000
-```
-
----
-
-## Analysis returns HTTP 500
-
-Do not randomly reinstall packages or change code.
-
-Check the backend terminal and copy the complete error. The terminal traceback identifies the actual failing component.
-
----
-
-# 8. Stopping the Application
-
-## Stop backend
-
-Press:
-
-```text
-Ctrl + C
-```
-
-Then deactivate the environment:
-
-### Windows
-
-```powershell
-deactivate
-```
-
-### Linux Mint
-
-```bash
-deactivate
-```
-
-## Stop frontend
-
-Press:
-
-```text
-Ctrl + C
-```
-
----
-
-# 9. Quick Commands
-
-## Windows
-
-### Terminal 1
+Open PowerShell in the project root:
 
 ```powershell
 cd SahiNaksha\backend
@@ -622,18 +145,46 @@ cd SahiNaksha\backend
 uvicorn app.main:app --reload
 ```
 
-### Terminal 2
+Backend:
+
+```text
+http://127.0.0.1:8000
+```
+
+Health check:
+
+```text
+http://127.0.0.1:8000/health
+```
+
+API documentation:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Keep Terminal 1 running.
+
+---
+
+## Windows — Terminal 2: Frontend
+
+Open a second PowerShell window:
 
 ```powershell
 cd SahiNaksha\frontend
 npm run dev
 ```
 
+Open the URL shown by Vite, normally:
+
+```text
+http://localhost:5173/
+```
+
 ---
 
-## Linux Mint Cinnamon
-
-### Terminal 1
+## Linux Mint — Terminal 1: Backend
 
 ```bash
 cd ~/SahiNaksha/backend
@@ -641,24 +192,411 @@ source venv/bin/activate
 uvicorn app.main:app --reload
 ```
 
-### Terminal 2
+---
+
+## Linux Mint — Terminal 2: Frontend
 
 ```bash
 cd ~/SahiNaksha/frontend
 npm run dev
 ```
 
+Open:
+
+```text
+http://localhost:5173/
+```
+
 ---
 
-# 10. Demo Recommendation
+# 5. DAILY STARTUP — AFTER INITIALIZATION
 
-Before presenting SahiNaksha:
+You **do not need to reinstall anything** every time.
 
-- Test at least two aerial images.
-- Keep one image that produces reliable results as your primary demo image.
-- Start backend and frontend before evaluators arrive.
-- Verify the health endpoint.
-- Test one complete analysis.
-- Keep the demo image locally available.
+### Windows
 
-The current computer-vision system is prototype-grade. Results depend on imagery quality, which is why the human-review and validation stages are part of the MVP.
+Terminal 1:
+
+```powershell
+cd SahiNaksha\backend
+.\venv\Scripts\Activate.ps1
+uvicorn app.main:app --reload
+```
+
+Terminal 2:
+
+```powershell
+cd SahiNaksha\frontend
+npm run dev
+```
+
+### Linux Mint
+
+Terminal 1:
+
+```bash
+cd ~/SahiNaksha/backend
+source venv/bin/activate
+uvicorn app.main:app --reload
+```
+
+Terminal 2:
+
+```bash
+cd ~/SahiNaksha/frontend
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:5173/
+```
+
+---
+
+# 6. AI / CUSTOM YOLO SETUP
+
+The normal backend works without the optional custom YOLO model.
+
+For the SahiNaksha custom segmentation model, install the AI dependencies inside the backend virtual environment:
+
+```bash
+cd backend
+```
+
+### Windows
+
+```powershell
+.\venv\Scripts\Activate.ps1
+pip install -r requirements-ai.txt
+```
+
+### Linux Mint
+
+```bash
+source venv/bin/activate
+pip install -r requirements-ai.txt
+```
+
+The custom model is expected at:
+
+```text
+backend/models/sahinaksha_seg.pt
+```
+
+The runtime model priority is:
+
+```text
+Custom YOLO segmentation
+        ↓
+Trained pixel model
+        ↓
+SAM (if configured)
+        ↓
+Computer-vision fallback
+```
+
+If `sahinaksha_seg.pt` is not present, SahiNaksha can still start; the available fallback pipeline is used.
+
+---
+
+# 7. TRAINING A CUSTOM MODEL
+
+Training requires **labelled images**, not just raw images.
+
+Recommended dataset:
+
+```text
+training/dataset/
+├── images/
+│   ├── train/
+│   └── val/
+├── labels/
+│   ├── train/
+│   └── val/
+└── sahinaksha.yaml
+```
+
+For 10 complete scenes, use approximately:
+
+```text
+8 scenes → training
+2 scenes → validation
+```
+
+For 20 scenes:
+
+```text
+16 scenes → training
+4 scenes → validation
+```
+
+Do not put crops from the same scene into both train and validation sets.
+
+Install training dependencies:
+
+```bash
+pip install -r training/requirements-yolo.txt
+```
+
+Train:
+
+```bash
+python training/quick_train_yolo.py --dataset training/dataset --epochs 60 --imgsz 768 --batch 4 --device 0
+```
+
+For CPU-only training:
+
+```bash
+python training/quick_train_yolo.py --dataset training/dataset --epochs 60 --imgsz 768 --batch 2 --device cpu
+```
+
+After training, copy the best checkpoint to:
+
+```text
+backend/models/sahinaksha_seg.pt
+```
+
+See:
+
+```text
+training/10_IMAGE_DEMO_PROTOCOL.md
+```
+
+for the complete 10–20 image prototype protocol.
+
+---
+
+# 8. RUNNING THE DEMO
+
+1. Start the backend.
+2. Start the frontend.
+3. Open:
+
+```text
+http://localhost:5173/
+```
+
+4. Upload an aerial/orthomosaic image.
+5. Click **Analyze Image**.
+6. Review the generated GIS layers.
+7. Inspect buildings, roads and parcel/reference features.
+8. Use human-review controls where required.
+9. Export GeoJSON when available.
+
+Expected high-level flow:
+
+```text
+Aerial / Orthomosaic Image
+          ↓
+       Upload
+          ↓
+      FastAPI API
+          ↓
+    AI / CV Analysis
+          ↓
+ Building + Road Features
+          ↓
+ Geometry / Topology Validation
+          ↓
+       GeoJSON
+          ↓
+     WebGIS Dashboard
+          ↓
+ Human Review / Correction
+```
+
+---
+
+# 9. BEST DEMO DATA
+
+For reliable prototype results, use images with:
+
+- Top-down aerial/orthomosaic view
+- High resolution
+- Clearly visible building roofs
+- Clearly visible roads
+- Consistent image quality/resolution
+- Limited tree/building occlusion
+- Minimal blur and shadows
+
+For supervised training, each image must have corresponding building/road labels or polygons.
+
+**Building footprints are not automatically legal cadastral/property boundaries.** Official ownership boundaries require authoritative cadastral/GIS/survey data.
+
+---
+
+# 10. TROUBLESHOOTING
+
+## `python` is not recognized — Windows
+
+Try:
+
+```powershell
+py --version
+```
+
+Then:
+
+```powershell
+py -m venv backend\venv
+```
+
+---
+
+## PowerShell refuses to activate venv
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\backend\venv\Scripts\Activate.ps1
+```
+
+---
+
+## `npm` or `node` is not recognized
+
+Install Node.js 18+ and restart the terminal.
+
+Verify:
+
+```bash
+node --version
+npm --version
+```
+
+---
+
+## `vite` is not recognized
+
+From `frontend`:
+
+```bash
+npm install
+npm run dev
+```
+
+Do **not** install Vite globally just to fix this error.
+
+---
+
+## Backend does not start
+
+Activate the virtual environment and reinstall backend dependencies:
+
+### Windows
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+### Linux
+
+```bash
+cd backend
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+---
+
+## Frontend says it cannot connect to backend
+
+First check:
+
+```text
+http://127.0.0.1:8000/health
+```
+
+If this does not work, fix the backend first.
+
+The normal local API address is:
+
+```text
+http://127.0.0.1:8000
+```
+
+---
+
+## Port 8000 is already in use
+
+Run the backend on another port:
+
+```bash
+uvicorn app.main:app --reload --port 8001
+```
+
+If you do this, update the frontend API configuration to use port `8001`.
+
+---
+
+## Analysis returns HTTP 500
+
+Look at the backend terminal and copy the complete traceback. Do not randomly reinstall packages or change application code before checking the actual error.
+
+---
+
+# 11. STOP THE WEBSITE
+
+In both frontend and backend terminals:
+
+```text
+Ctrl + C
+```
+
+For the backend virtual environment:
+
+```bash
+deactivate
+```
+
+---
+
+# 12. QUICK REFERENCE
+
+### First time
+
+```text
+Clone repository
+      ↓
+Create Python venv
+      ↓
+Install backend requirements
+      ↓
+Install frontend npm packages
+      ↓
+(Optional) Install AI requirements
+      ↓
+Ready
+```
+
+### Every day
+
+```text
+Terminal 1:
+backend → activate venv → uvicorn
+
+Terminal 2:
+frontend → npm run dev
+
+Browser:
+http://localhost:5173/
+```
+
+### Before SIH presentation
+
+- [ ] Backend starts successfully
+- [ ] `/health` works
+- [ ] Frontend loads
+- [ ] Test image uploads successfully
+- [ ] Analysis completes
+- [ ] Building/road layers appear
+- [ ] Human-review workflow works
+- [ ] GeoJSON export works
+- [ ] Primary demo image is tested beforehand
+- [ ] AI model/checkpoint is present if using custom YOLO
+- [ ] Do not claim an accuracy percentage that has not been measured on held-out labelled data
