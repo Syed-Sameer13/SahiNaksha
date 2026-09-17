@@ -1,115 +1,175 @@
-import { useEffect, useMemo, useState } from "react";
-import { MapContainer, ImageOverlay, GeoJSON, Marker, Polyline, Polygon, useMapEvents } from "react-leaflet";
-import { CRS, divIcon } from "leaflet";
+import { useMemo, useState } from "react";
+import { GeoJSON, MapContainer } from "react-leaflet";
+import { CRS } from "leaflet";
 
-const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const EMPTY = { type: "FeatureCollection", features: [] };
 const BOUNDS = [[0, 0], [100, 100]];
-const STORAGE_PREFIX = "sahinaksha:review:";
 
-<<<<<<< HEAD
-function readStorage(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
-function clone(v) { return JSON.parse(JSON.stringify(v)); }
-function featureType(f) { const p = f?.properties || {}; if (p.building_id != null || p.feature_type === "building") return "building"; if (p.road_id != null || p.feature_type === "road" || p.feature_type === "road_evidence") return "road"; return "parcel"; }
-function featureId(f) { const p = f?.properties || {}; return `${featureType(f)}:${p.parcel_id || p.building_id || p.road_id || f?.id || "unknown"}`; }
-function polygonArea(g) { if (!g) return 0; const a = r => Math.abs(r.reduce((s,p,i) => { const q = r[(i+1)%r.length]; return s + p[0]*q[1] - q[0]*p[1]; },0))/2; if(g.type === "Polygon") return (g.coordinates||[]).reduce((s,r,i)=>s+(i ? -a(r) : a(r)),0); if(g.type === "MultiPolygon") return (g.coordinates||[]).reduce((s,p)=>s+polygonArea({type:"Polygon",coordinates:p}),0); return 0; }
-function vertices(g) { if (!g) return []; if (g.type === "Polygon") return (g.coordinates[0]||[]).slice(0,-1).map((point,index)=>({index,point})); if (g.type === "LineString") return (g.coordinates||[]).map((point,index)=>({index,point})); return []; }
-function moveVertex(g,index,point) { const n=clone(g); if(g.type === "Polygon"){ n.coordinates[0][index]=point; if(index===0)n.coordinates[0][n.coordinates[0].length-1]=[...point]; } else if(g.type === "LineString") n.coordinates[index]=point; return n; }
-function insertVertex(g,index,point) { const n=clone(g); if(g.type === "Polygon")n.coordinates[0].splice(index+1,0,point); else if(g.type === "LineString")n.coordinates.splice(index+1,0,point); return n; }
-function removeVertex(g,index) { const n=clone(g); if(g.type === "Polygon"){ if(n.coordinates[0].length<=4)return null; n.coordinates[0].splice(index,1); if(index===0)n.coordinates[0][n.coordinates[0].length-1]=[...n.coordinates[0][0]]; } else if(g.type === "LineString"){ if(n.coordinates.length<=2)return null; n.coordinates.splice(index,1); } return n; }
+function featureCount(data) {
+  return data?.features?.length || 0;
+}
 
-const vertexIcon=divIcon({className:"geometry-vertex",html:"<span></span>",iconSize:[14,14],iconAnchor:[7,7]});
-const midpointIcon=divIcon({className:"geometry-midpoint",html:"<span></span>",iconSize:[10,10],iconAnchor:[5,5]});
-function EditorHandles({feature,onChange,onDelete}) { const g=feature?.geometry; if(!g)return null; const vs=vertices(g); const edges=vs.map((v,i)=>{if(g.type==="LineString"&&i===vs.length-1)return null;const next=vs[(i+1)%vs.length];return next?{i,a:v.point,b:next.point}:null;}).filter(Boolean); return <>{vs.map(v=><Marker key={`v-${v.index}`} position={[v.point[1],v.point[0]]} icon={vertexIcon} draggable eventHandlers={{dragend:e=>{const p=e.target.getLatLng();onChange(moveVertex(g,v.index,[p.lng,p.lat]));},click:()=>onDelete(v.index)}}/>)}{edges.map(e=>{const p=[(e.a[0]+e.b[0])/2,(e.a[1]+e.b[1])/2];return <Marker key={`m-${e.i}`} position={[p[1],p[0]]} icon={midpointIcon} eventHandlers={{click:()=>onChange(insertVertex(g,e.i,p))}}/>;})}</>; }
-function DrawCapture({active,onPoint}) { useMapEvents({click:e=>{if(active)onPoint([e.latlng.lng,e.latlng.lat]);}}); return null; }
+function formatMetric(value) {
+  if (value === undefined || value === null || value === "") return "—";
+  const n = Number(value);
+  return Number.isFinite(n) && n <= 1 ? `${(n * 100).toFixed(1)}%` : String(value);
+}
 
-const OPTIONS={building_use:["Residential","Commercial","Industrial","Institutional","Mixed Use","Other"],condition:["Good","Fair","Poor","Unknown"],occupancy:["Occupied","Vacant","Under Construction","Unknown"],roof_type:["Flat","Pitched","Metal","Tile","Concrete","Other","Unknown"],road_type:["Highway","Main Road","Street","Lane","Path","Access Road","Unknown"],surface:["Asphalt","Concrete","Gravel","Dirt","Paved","Unknown"],access:["Public","Private","Restricted","Unknown"],land_use:["Residential","Commercial","Agricultural","Industrial","Institutional","Vacant","Mixed Use","Unknown"],parcel_status:["Preliminary Block","Reference Parcel","Human Verified","Needs Survey"],survey_status:["AI Detected","AI Derived","Reference GIS","Human Verified","Needs Field Survey","Unknown"]};
-const FIELDS={building:["building_id","building_use","floors","condition","occupancy","roof_type","address","survey_status","reviewer_notes"],road:["road_id","road_type","surface","access","condition","name","reviewer_notes"],parcel:["parcel_id","land_use","parcel_status","area","ownership_ref","survey_status","reviewer_notes"]};
-const label=k=>k.replaceAll("_"," ").replace(/\b\w/g,x=>x.toUpperCase());
+function pretty(value) {
+  if (value === undefined || value === null || value === "") return "—";
+  return String(value).replaceAll("_", " ");
+}
 
-export default function Dashboard({result,onReset}){
- const storageKey=`${STORAGE_PREFIX}${result.analysis_id||"current"}`;
- const original=useMemo(()=>({parcels:result.parcels||{type:"FeatureCollection",features:[]},buildings:result.buildings||{type:"FeatureCollection",features:[]},roads:result.roads||{type:"FeatureCollection",features:[]}}),[result]);
- const [layers,setLayers]=useState({parcels:!!original.parcels.features.length,buildings:true,roads:true});
-=======
-function featureType(f){const p=f?.properties||{};if(p.building_id!=null||p.feature_type==="building")return"building";if(p.road_id!=null||p.feature_type==="road"||p.feature_type==="road_evidence")return"road";return"parcel"}
-function featureId(f){const p=f?.properties||{};return`${featureType(f)}:${p.parcel_id||p.building_id||p.road_id||f?.id||"unknown"}`}
-function readStorage(k,f){try{const x=localStorage.getItem(k);return x?JSON.parse(x):f}catch{return f}}
-function clone(x){return JSON.parse(JSON.stringify(x))}
-function polygonArea(g){if(!g)return 0;const a=r=>Math.abs(r.reduce((s,p,i)=>{const q=r[(i+1)%r.length];return s+p[0]*q[1]-q[0]*p[1]},0))/2;if(g.type==="Polygon")return(g.coordinates||[]).reduce((s,r,i)=>s+(i?-a(r):a(r)),0);return 0}
-function vertices(g){if(!g||g.type!=="Polygon")return[];return(g.coordinates[0]||[]).slice(0,-1).map((point,index)=>({index,point}))}
-function moveVertex(g,index,point){const n=clone(g);n.coordinates[0][index]=point;if(index===0)n.coordinates[0][n.coordinates[0].length-1]=[...point];return n}
-function insertVertex(g,index,point){const n=clone(g);n.coordinates[0].splice(index+1,0,point);return n}
-function deleteVertex(g,index){const n=clone(g);if(n.coordinates[0].length<=4)return null;n.coordinates[0].splice(index,1);if(index===0)n.coordinates[0][n.coordinates[0].length-1]=[...n.coordinates[0][0]];return n}
-const vertexIcon=divIcon({className:"geometry-vertex",html:"<span></span>",iconSize:[14,14],iconAnchor:[7,7]});
-function EditorVertices({feature,onChange}){return<>{vertices(feature?.geometry).map(v=><Marker key={v.index} position={[v.point[1],v.point[0]]} icon={vertexIcon} draggable eventHandlers={{dragend:e=>{const p=e.target.getLatLng();onChange(moveVertex(feature.geometry,v.index,[p.lng,p.lat]))}}}/>)}</>}
-function DrawCapture({active,onPoint}){useMapEvents({click:e=>{if(active)onPoint([e.latlng.lng,e.latlng.lat])}});return null}
+const card = {
+  background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  padding: 20,
+  boxShadow: "0 2px 8px rgba(15,23,42,.04)",
+};
 
-const FIELDS={building:["building_id","building_use","floors","condition","occupancy","roof_type","address","survey_status","reviewer_notes"],road:["road_id","road_type","surface","access","condition","name","reviewer_notes"],parcel:["parcel_id","land_use","parcel_status","area","ownership_ref","survey_status","reviewer_notes"]};
-const OPTIONS={building_use:["Residential","Commercial","Industrial","Institutional","Mixed Use","Other"],condition:["Good","Fair","Poor","Unknown"],occupancy:["Occupied","Vacant","Under Construction","Unknown"],roof_type:["Flat","Pitched","Metal","Tile","Concrete","Other","Unknown"],survey_status:["AI Detected","Human Verified","Needs Field Survey","Unknown"],road_type:["Highway","Main Road","Street","Lane","Path","Access Road","Unknown"],surface:["Asphalt","Concrete","Gravel","Dirt","Paved","Unknown"],access:["Public","Private","Restricted","Unknown"],land_use:["Residential","Commercial","Agricultural","Industrial","Institutional","Vacant","Mixed Use","Unknown"],parcel_status:["Preliminary Block","Reference Parcel","Human Verified","Needs Survey"]};
+const button = {
+  border: "1px solid #cbd5e1",
+  background: "#fff",
+  borderRadius: 9,
+  padding: "9px 14px",
+  cursor: "pointer",
+  fontWeight: 600,
+};
 
-export default function Dashboard({result,onReset}){
- const storageKey=`${STORAGE_PREFIX}${result.analysis_id||"current"}`;
- const original={parcels:result.parcels||{type:"FeatureCollection",features:[]},buildings:result.buildings||{type:"FeatureCollection",features:[]},roads:result.roads||{type:"FeatureCollection",features:[]}};
- const [layers,setLayers]=useState({parcels:true,buildings:true,roads:true});
->>>>>>> f58e9fe (1:09)
- const [geometry,setGeometry]=useState(()=>readStorage(`${storageKey}:geometry`,{}));
- const [review,setReview]=useState(()=>readStorage(`${storageKey}:decisions`,{}));
- const [edits,setEdits]=useState(()=>readStorage(`${storageKey}:edits`,{}));
-<<<<<<< HEAD
- const [reviewer,setReviewer]=useState(()=>localStorage.getItem(`${storageKey}:reviewer`)||"");
- const [selected,setSelected]=useState(null); const [editing,setEditing]=useState(false); const [drawMode,setDrawMode]=useState(false); const [drawType,setDrawType]=useState("parcel"); const [drawPoints,setDrawPoints]=useState([]); const [history,setHistory]=useState([]); const [future,setFuture]=useState([]); const [finalMap,setFinalMap]=useState(false); const [message,setMessage]=useState("");
- useEffect(()=>{try{localStorage.setItem(`${storageKey}:geometry`,JSON.stringify(geometry));localStorage.setItem(`${storageKey}:manual_features`,JSON.stringify(manualFeatures));localStorage.setItem(`${storageKey}:decisions`,JSON.stringify(review));localStorage.setItem(`${storageKey}:edits`,JSON.stringify(edits));localStorage.setItem(`${storageKey}:reviewer`,reviewer);}catch{}},[storageKey,geometry,manualFeatures,review,edits,reviewer]);
- const all=useMemo(()=>[...Object.entries(original).flatMap(([type,c])=>(c.features||[]).map(f=>({...f,__type:type,geometry:geometry[featureId(f)]||f.geometry}))),...manualFeatures.map(f=>({...f,__type:featureType(f),geometry:geometry[featureId(f)]||f.geometry}))],[original,geometry,manualFeatures]);
- const current=selected?all.find(f=>featureId(f)===featureId(selected)):null; const currentId=current?featureId(current):"";
- const counts={parcels:all.filter(f=>featureType(f)==="parcel").length,buildings:all.filter(f=>featureType(f)==="building").length,roads:all.filter(f=>featureType(f)==="road").length};
- const total=all.length,reviewed=Object.keys(review).length,approved=Object.values(review).filter(v=>v==="Approved").length,needs=Object.values(review).filter(v=>v==="Needs Review").length,rejected=Object.values(review).filter(v=>v==="Rejected").length;
- const evaluation=result.evaluation?.available?result.evaluation:null; const aiReady=result.ai_engine?.status==="ready";
- const select=f=>{setSelected(f);setEditing(false);setDrawMode(false);setDrawPoints([]);setHistory([]);setFuture([]);setMessage("");};
- const applyGeometry=g=>{if(!current)return;setHistory(h=>[...h,clone(geometry[currentId]||current.geometry)].slice(-40));setFuture([]);setGeometry(x=>({...x,[currentId]:g}));setSelected(x=>x?{...x,geometry:g}:x);setMessage("Boundary updated and saved locally ✓");};
- const undo=()=>{if(!current||!history.length)return;const prev=history.at(-1);setFuture(f=>[geometry[currentId]||current.geometry,...f]);setHistory(h=>h.slice(0,-1));setGeometry(g=>({...g,[currentId]:prev}));setSelected(s=>s?{...s,geometry:prev}:s);};
- const redo=()=>{if(!current||!future.length)return;const next=future[0];setHistory(h=>[...h,geometry[currentId]||current.geometry].slice(-40));setFuture(f=>f.slice(1));setGeometry(g=>({...g,[currentId]:next}));setSelected(s=>s?{...s,geometry:next}:s);};
- const deleteVertex=index=>{if(!current)return;const next=removeVertex(current.geometry,index);if(next)applyGeometry(next);else setMessage("Minimum geometry points reached.");};
- const resetGeometry=()=>{if(!current)return;const source=(original[current.__type]?.features||[]).find(f=>featureId(f)===currentId);if(source)applyGeometry(source.geometry);};
- const finishDraw=()=>{const min=drawType==="road"?2:3;if(drawPoints.length<min){setMessage(`Place at least ${min} points.`);return;}const stamp=Date.now();const id=`${drawType}:manual-${stamp}`;const f={type:"Feature",id:`manual-${stamp}`,properties:{feature_type:drawType,review_status:"Needs Review"},geometry:drawType==="road"?{type:"LineString",coordinates:drawPoints}:{type:"Polygon",coordinates:[[...drawPoints,drawPoints[0]]]}};setManualFeatures(x=>[...x,f]);setReview(x=>({...x,[id]:"Needs Review"}));setDrawPoints([]);setDrawMode(false);setMessage(`New ${drawType} created and marked Needs Review ✓`);};
- const finalFeatures=all.filter(f=>review[featureId(f)]==="Approved").map(f=>({...f,properties:{...(f.properties||{}),...(edits[featureId(f)]||{}),review_status:"Approved",reviewed_by:reviewer||"not specified"}}));
- const download=()=>{const out={type:"FeatureCollection",features:finalFeatures,metadata:{project:"SahiNaksha",analysis_id:result.analysis_id,stage:"human_reviewed_final_gis",approved_feature_count:finalFeatures.length,geometry_edited_feature_count:Object.keys(geometry).length,manual_feature_count:manualFeatures.length,legal_status:"prototype_output_requires_authoritative_cadastral_and_survey_validation"}};const url=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:"application/geo+json"}));const a=document.createElement("a");a.href=url;a.download=`sahinaksha_final_${result.analysis_id||"output"}.geojson`;a.click();URL.revokeObjectURL(url);};
- const fields=FIELDS[current?featureType(current):"building"]; const props=current?{...(current.properties||{}),...(edits[currentId]||{})}:{};
- return <main className="dashboard">
-  <header className="topbar"><div><div className="brand">Sahi<span>Naksha</span></div><small>AI cadastral extraction · GIS review workspace</small></div><div className="actions"><button className="secondary-button" onClick={()=>setFinalMap(v=>!v)}>{finalMap?"Show AI Map":"Final Reviewed Map"}</button><button className="secondary-button" onClick={download} disabled={!approved}>Download Final GIS</button><button className="secondary-button" onClick={onReset}>New Analysis</button></div></header>
-  <section className="summary-grid"><div><b>{counts.parcels}</b><span>Parcel Blocks</span></div><div><b>{counts.buildings}</b><span>Buildings</span></div><div><b>{counts.roads}</b><span>Roads / Access</span></div><div><b>{reviewed}/{total}</b><span>Reviewed</span></div></section>
-  <section className="review-report"><div className="report-heading"><div><div className="report-kicker">ANALYSIS DATA DASHBOARD</div><h2>Extraction & Review Summary</h2><p>AI output, geometry quality, review progress and GIS readiness.</p></div><span className={`engine-pill ${aiReady?"ready":"fallback"}`}>{aiReady?"AI engine ready":"Fallback / limited AI"}</span></div>
-   <div className="report-grid"><div className="report-card"><span>Buildings</span><strong>{counts.buildings}</strong><small>Detected footprints</small></div><div className="report-card"><span>Roads</span><strong>{counts.roads}</strong><small>Road / access evidence</small></div><div className="report-card"><span>Parcel blocks</span><strong>{counts.parcels}</strong><small>Preliminary or reference</small></div><div className="report-card"><span>AI provider</span><strong>{result.ai_engine?.provider||"not reported"}</strong><small>{result.ai_engine?.windows||0} image windows</small></div></div>
-   <div className="report-columns"><div className="report-section"><h3>Review status</h3><div className="review-counts"><span><b>{approved}</b> Approved</span><span><b>{needs}</b> Needs Review</span><span><b>{rejected}</b> Rejected</span><span><b>{Math.max(0,total-reviewed)}</b> Pending</span></div><div className="review-progress"><i style={{width:`${total?reviewed/total*100:0}%`}}/></div><small>{total?((reviewed/total)*100).toFixed(1):0}% reviewed</small></div>
-    <div className="report-section"><h3>Geometry summary</h3><div className="metric-row"><span>Building area</span><b>{all.filter(f=>featureType(f)==="building").reduce((s,f)=>s+polygonArea(f.geometry),0).toFixed(2)}</b></div><div className="metric-row"><span>Parcel area</span><b>{all.filter(f=>featureType(f)==="parcel").reduce((s,f)=>s+polygonArea(f.geometry),0).toFixed(2)}</b></div><div className="metric-row"><span>Edited geometries</span><b>{Object.keys(geometry).length}</b></div></div>
-    <div className="report-section"><h3>AI evaluation</h3>{evaluation?<><div className="metric-row"><span>Precision</span><b>{evaluation.precision??"—"}</b></div><div className="metric-row"><span>Recall</span><b>{evaluation.recall??"—"}</b></div><div className="metric-row"><span>F1 / IoU</span><b>{evaluation.f1??evaluation.iou??"—"}</b></div></>:<p className="muted">No ground-truth evaluation supplied.</p>}</div></div>
-  </section>
-  <section className="editor-banner"><div><b>Interactive Map Editor</b><span>Correct AI geometry directly against the aerial image. Drag vertices, click a midpoint to insert, or click a vertex to remove it.</span></div><div className="editor-tools"><button className="secondary-button" disabled={!current||finalMap} onClick={()=>setEditing(v=>!v)}>{editing?"Exit Edit":"Edit Boundary"}</button><button className="secondary-button" disabled={!editing||!history.length} onClick={undo}>↶ Undo</button><button className="secondary-button" disabled={!editing||!future.length} onClick={redo}>↷ Redo</button><button className="secondary-button" disabled={!editing} onClick={resetGeometry}>Reset AI</button><select disabled={finalMap} value={drawType} onChange={e=>setDrawType(e.target.value)}><option value="parcel">Draw Parcel</option><option value="building">Draw Building</option><option value="road">Draw Road</option></select><button className="secondary-button" disabled={finalMap} onClick={()=>{setDrawMode(v=>!v);setDrawPoints([])}}>{drawMode?"Cancel Draw":"Draw New"}</button>{drawMode&&<button className="primary-button inline-button" onClick={finishDraw}>Finish</button>}</div>{message&&<small className="editor-message">{message}</small>}</section>
-  <section className="workspace"><aside className="sidebar"><h3>GIS Layers</h3>{Object.keys(layers).map(k=><label className="toggle" key={k}><input type="checkbox" checked={layers[k]} onChange={()=>setLayers(x=>({...x,[k]:!x[k]}))}/>{k}</label>)}<hr/><h3>Feature Review</h3>{current?<><div className="selected-title"><span className="feature-type-badge">{featureType(current)}</span><b>{currentId}</b></div><div className="details">{fields.map(k=><label className="edit-field" key={k}><span>{label(k)}</span>{OPTIONS[k]?<select value={edits[currentId]?.[k]??props[k]??""} onChange={e=>setEdits(x=>({...x,[currentId]:{...(x[currentId]||{}),[k]:e.target.value}}))}><option value="">Select...</option>{OPTIONS[k].map(o=><option key={o}>{o}</option>)}</select>:<input value={edits[currentId]?.[k]??props[k]??""} onChange={e=>setEdits(x=>({...x,[currentId]:{...(x[currentId]||{}),[k]:e.target.value}}))}/>}</label>)}</div><label className="reviewer-field"><span>Reviewer</span><input value={reviewer} onChange={e=>setReviewer(e.target.value)} placeholder="Reviewer name"/></label><div className="review-buttons"><button onClick={()=>setReview(x=>({...x,[currentId]:"Approved"}))}>✓ Approve</button><button onClick={()=>setReview(x=>({...x,[currentId]:"Needs Review"}))}>⚠ Needs Review</button><button onClick={()=>setReview(x=>({...x,[currentId]:"Rejected"}))}>✕ Reject</button></div>{review[currentId]&&<p className="review-status">{review[currentId]} · saved locally</p>}<div className="geometry-help"><b>Boundary accuracy</b><span>White point: drag.</span><span>Small midpoint: insert.</span><span>White point click: remove.</span><span>Area: {polygonArea(current.geometry).toFixed(2)} image units²</span></div></>:<p className="muted">Click a building, road or parcel on the image to select it.</p>}<hr/><p className="muted">Geometry, attributes and review decisions persist in this browser.</p></aside>
-   <div className="map-wrap"><MapContainer crs={CRS.Simple} bounds={BOUNDS} minZoom={-2} maxZoom={5} zoom={0} style={{height:"100%",width:"100%"}}><DrawCapture active={drawMode} onPoint={p=>setDrawPoints(x=>[...x,p])}/>{result.original_image_url&&<ImageOverlay url={result.original_image_url} bounds={BOUNDS} opacity={.92}/>} {!finalMap&&layers.parcels&&<GeoJSON data={original.parcels} style={{color:"#22c55e",weight:2.5,fillOpacity:.08}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {!finalMap&&layers.buildings&&<GeoJSON data={original.buildings} style={{color:"#38bdf8",weight:2,fillOpacity:.08}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {!finalMap&&layers.roads&&<GeoJSON data={original.roads} style={{color:"#f59e0b",weight:3,fillOpacity:.06}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {finalMap&&<GeoJSON data={{type:"FeatureCollection",features:finalFeatures}} style={{color:"#72d89b",weight:3,fillOpacity:.12}}/>}{editing&&current&&<EditorHandles feature={{...current,geometry:geometry[currentId]||current.geometry}} onChange={applyGeometry} onDelete={deleteVertex}/>} {drawMode&&drawPoints.length>1&&<Polyline positions={drawPoints.map(p=>[p[1],p[0]])} weight={2} dashArray="5 5"/>}{drawMode&&drawType!=="road"&&drawPoints.length>=3&&<Polygon positions={drawPoints.map(p=>[p[1],p[0]])} fillOpacity={.08} weight={1}/>}</MapContainer><div className="map-note">{drawMode?`Draw ${drawType}: click ${drawType==="road"?"at least 2":"at least 3"} points, then Finish.`:editing?"Edit mode: drag white vertices or click a midpoint to insert.":finalMap?"Final reviewed map: approved features only.":"Select a feature to review and edit."}</div></div>
-  </section>
- </main>;
-=======
- const [selected,setSelected]=useState(null); const [editing,setEditing]=useState(false); const [drawMode,setDrawMode]=useState(false); const [drawPoints,setDrawPoints]=useState([]); const [history,setHistory]=useState([]); const [future,setFuture]=useState([]); const [message,setMessage]=useState(""); const [reviewer,setReviewer]=useState(()=>localStorage.getItem(`${storageKey}:reviewer`)||""); const [finalMap,setFinalMap]=useState(false);
- useEffect(()=>{try{localStorage.setItem(`${storageKey}:geometry`,JSON.stringify(geometry));localStorage.setItem(`${storageKey}:decisions`,JSON.stringify(review));localStorage.setItem(`${storageKey}:edits`,JSON.stringify(edits));localStorage.setItem(`${storageKey}:reviewer`,reviewer)}catch{}},[storageKey,geometry,review,edits,reviewer]);
- const all=useMemo(()=>Object.entries(original).flatMap(([type,c])=>(c.features||[]).map(f=>({...f,__type:type,geometry:geometry[featureId(f)]||f.geometry}))),[result,geometry]);
- const current=selected?all.find(f=>featureId(f)===featureId(selected)):null; const currentId=current?featureId(current):"";
- const total=all.length, reviewed=Object.keys(review).length, approved=Object.values(review).filter(v=>v==="Approved").length;
- const select=f=>{setSelected(f);setEditing(false);setDrawMode(false);setDrawPoints([]);setHistory([]);setFuture([])};
- const applyGeometry=g=>{if(!currentId)return;setHistory(h=>[...h,(geometry[currentId]||current.geometry)].slice(-30));setFuture([]);setGeometry(x=>({...x,[currentId]:g}));setSelected(x=>x?{...x,geometry:g}:x);setMessage("Boundary updated and saved locally ✓")};
- const undo=()=>{if(!history.length)return;const prev=history.at(-1);setFuture(f=>[geometry[currentId]||current.geometry,...f]);setHistory(h=>h.slice(0,-1));setGeometry(g=>({...g,[currentId]:prev}));setSelected(s=>s?{...s,geometry:prev}:s)};
- const redo=()=>{if(!future.length)return;const next=future[0];setHistory(h=>[...h,(geometry[currentId]||current.geometry)].slice(-30));setFuture(f=>f.slice(1));setGeometry(g=>({...g,[currentId]:next}));setSelected(s=>s?{...s,geometry:next}:s)};
- const addVertex=()=>{if(!current||current.geometry.type!=="Polygon")return setMessage("This feature is not a polygon.");const vs=vertices(current.geometry);if(!vs.length)return;let best=null;vs.forEach(v=>{const n=vs.find(x=>x.index===v.index+1)||vs[0];const p=[(v.point[0]+n.point[0])/2,(v.point[1]+n.point[1])/2];const score=Math.abs(p[0])+Math.abs(p[1]);if(!best||score<best.score)best={index:v.index,point:p,score}});applyGeometry(insertVertex(current.geometry,best.index,best.point))};
- const deleteVertexAction=()=>{if(!current)return;const vs=vertices(current.geometry);if(vs.length<=3)return setMessage("A polygon must keep at least 3 vertices.");const g=deleteVertex(current.geometry,vs.length-1);if(g)applyGeometry(g)};
- const resetGeometry=()=>{const source=(original[current?.__type]?.features||[]).find(f=>featureId(f)===currentId);if(source)applyGeometry(source.geometry)};
- const finalFeatures=all.filter(f=>review[featureId(f)]==="Approved").map(f=>({...f,geometry:geometry[featureId(f)]||f.geometry,properties:{...f.properties,...(edits[featureId(f)]||{}),review_status:"Approved",reviewed_by:reviewer||"not specified"}}));
- const download=()=>{const out={type:"FeatureCollection",features:finalFeatures,metadata:{project:"SahiNaksha",analysis_id:result.analysis_id,stage:"human_reviewed_geometry",approved_feature_count:finalFeatures.length,geometry_edited_feature_count:Object.keys(geometry).length,legal_status:"prototype_output_requires_authoritative_cadastral_and_survey_validation"}};const u=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:"application/geo+json"}));const a=document.createElement("a");a.href=u;a.download=`sahinaksha_final_${result.analysis_id||"output"}.geojson`;a.click();URL.revokeObjectURL(u)};
- const drawPoint=p=>setDrawPoints(x=>[...x,p]);
- const finishDraw=()=>{if(drawPoints.length<3)return setMessage("Place at least 3 points.");const type=current?featureType(current):"parcel";const id=`${type}:manual-${Date.now()}`;const f={type:"Feature",id:`manual-${Date.now()}`,properties:{feature_type:type,review_status:"Needs Review"},geometry:{type:"Polygon",coordinates:[[...drawPoints,drawPoints[0]]]}};setGeometry(g=>({...g,[id]:f.geometry}));setEdits(e=>({...e,[id]:f.properties}));setReview(r=>({...r,[id]:"Needs Review"}));setDrawPoints([]);setDrawMode(false);setMessage("New polygon created and marked Needs Review ✓")};
- const label=k=>k.replaceAll("_"," ").replace(/\b\w/g,x=>x.toUpperCase());
- return <main className="dashboard"><header className="topbar"><div><div className="brand">Sahi<span>Naksha</span></div><small>AI cadastral extraction · human geometry editing</small></div><div className="actions"><button className="secondary-button" onClick={()=>setFinalMap(v=>!v)}>{finalMap?"Show AI Map":"Final Reviewed Map"}</button><button className="secondary-button" onClick={download} disabled={!approved}>Download Final GIS</button><button className="secondary-button" onClick={onReset}>New Analysis</button></div></header>
- <section className="summary-grid"><div><b>{original.parcels.features.length}</b><span>Parcel Blocks</span></div><div><b>{original.buildings.features.length}</b><span>Buildings</span></div><div><b>{original.roads.features.length}</b><span>Roads / Access</span></div><div><b>{reviewed}/{total}</b><span>Reviewed</span></div></section>
- <section className="editor-banner"><div><b>Interactive Map Editor</b><span>Correct AI geometry directly against the aerial image. Drag points, add or delete vertices, undo/redo, reset, or draw a new polygon.</span></div><div className="editor-tools"><button className="secondary-button" disabled={!current||finalMap} onClick={()=>setEditing(v=>!v)}>{editing?"Exit Edit":"Edit Boundary"}</button><button className="secondary-button" disabled={!editing} onClick={addVertex}>＋ Vertex</button><button className="secondary-button" disabled={!editing} onClick={deleteVertexAction}>− Vertex</button><button className="secondary-button" disabled={!editing||!history.length} onClick={undo}>↶ Undo</button><button className="secondary-button" disabled={!editing||!future.length} onClick={redo}>↷ Redo</button><button className="secondary-button" disabled={!editing} onClick={resetGeometry}>Reset AI</button><button className="secondary-button" disabled={finalMap} onClick={()=>{setDrawMode(v=>!v);setDrawPoints([])}}>{drawMode?"Cancel Draw":"Draw New"}</button>{drawMode&&<button className="primary-button inline-button" onClick={finishDraw}>Finish</button>}</div>{message&&<small className="editor-message">{message}</small>}</section>
- <section className="workspace"><aside className="sidebar"><h3>GIS Layers</h3>{Object.keys(layers).map(k=><label className="toggle" key={k}><input type="checkbox" checked={layers[k]} onChange={()=>setLayers(x=>({...x,[k]:!x[k]}))}/>{k}</label>)}<hr/><h3>Feature Review</h3>{current?<><div className="selected-title"><span className="feature-type-badge">{featureType(current)}</span><b>{currentId}</b></div><div className="details">{FIELDS[featureType(current)].map(k=><label className="edit-field" key={k}><span>{label(k)}</span>{OPTIONS[k]?<select value={edits[currentId]?.[k]??current.properties?.[k]??""} onChange={e=>setEdits(x=>({...x,[currentId]:{...(x[currentId]||{}),[k]:e.target.value}}))}><option value="">Select...</option>{OPTIONS[k].map(o=><option key={o}>{o}</option>)}</select>:<input value={edits[currentId]?.[k]??current.properties?.[k]??""} onChange={e=>setEdits(x=>({...x,[currentId]:{...(x[currentId]||{}),[k]:e.target.value}}))}/>}</label>)}</div><label className="reviewer-field"><span>Reviewer</span><input value={reviewer} onChange={e=>setReviewer(e.target.value)} placeholder="Reviewer name"/></label><div className="review-buttons"><button onClick={()=>setReview(x=>({...x,[currentId]:"Approved"}))}>✓ Approve</button><button onClick={()=>setReview(x=>({...x,[currentId]:"Needs Review"}))}>⚠ Needs Review</button><button onClick={()=>setReview(x=>({...x,[currentId]:"Rejected"}))}>✕ Reject</button></div>{review[currentId]&&<p className="review-status">{review[currentId]} · saved locally</p>}<div className="geometry-help"><b>Boundary accuracy</b><span>White points are draggable vertices.</span><span>＋ adds a corner. − removes a corner.</span><span>Undo/Redo protects your previous geometry.</span><span>Area: {polygonArea(current.geometry).toFixed(2)} image units²</span></div></>:<p className="muted">Click a building, road or parcel on the image to select it.</p>}<hr/><p className="muted">Geometry, attributes and review decisions persist in this browser.</p></aside>
- <div className="map-wrap"><MapContainer crs={CRS.Simple} bounds={BOUNDS} minZoom={-2} maxZoom={5} zoom={0} style={{height:"100%",width:"100%"}}><DrawCapture active={drawMode} onPoint={drawPoint}/>{result.original_image_url&&<ImageOverlay url={result.original_image_url} bounds={BOUNDS} opacity={.92}/>} {!finalMap&&layers.parcels&&<GeoJSON data={original.parcels} style={{color:"#22c55e",weight:2.5,fillOpacity:.08}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {!finalMap&&layers.buildings&&<GeoJSON data={original.buildings} style={{color:"#38bdf8",weight:2,fillOpacity:.08}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {!finalMap&&layers.roads&&<GeoJSON data={original.roads} style={{color:"#f59e0b",weight:3,fillOpacity:.06}} onEachFeature={(f,l)=>l.on({click:()=>select(f)})}/>} {finalMap&&<GeoJSON data={{type:"FeatureCollection",features:finalFeatures}} style={{color:"#72d89b",weight:3,fillOpacity:.12}}/>}{editing&&current&&<EditorVertices feature={{...current,geometry:geometry[currentId]||current.geometry}} onChange={applyGeometry}/>} {drawMode&&drawPoints.length>1&&<Polyline positions={drawPoints.map(p=>[p[1],p[0]])} weight={2} dashArray="5 5"/>}{drawMode&&drawPoints.length>=3&&<Polygon positions={drawPoints.map(p=>[p[1],p[0]])} fillOpacity={.08} weight={1}/>}</MapContainer><div className="map-note">{drawMode?"Draw mode: click corners on the image, then Finish.":editing?"Edit mode: drag white vertices directly on the image.":finalMap?"Final reviewed map: approved features only.":"Select a feature to edit its boundary and attributes."}</div></div></section></main>;
->>>>>>> f58e9fe (1:09)
+function Metric({ label, value, note }) {
+  return (
+    <div style={card}>
+      <div style={{ color: "#64748b", fontSize: 13 }}>{label}</div>
+      <div style={{ fontSize: 32, fontWeight: 800, marginTop: 5 }}>{value}</div>
+      {note && <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 3 }}>{note}</div>}
+    </div>
+  );
+}
+
+function Info({ label, value }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: "1px solid #edf0f4", fontSize: 13 }}>
+      <span style={{ color: "#64748b" }}>{label}</span>
+      <strong style={{ textAlign: "right", textTransform: "capitalize" }}>{value}</strong>
+    </div>
+  );
+}
+
+function layerStyle(type) {
+  if (type === "buildings") return { weight: 2, fillOpacity: 0.35 };
+  if (type === "roads") return { weight: 3, opacity: 0.9 };
+  return { weight: 2, fillOpacity: 0.12 };
+}
+
+export default function Dashboard({ result, onReset }) {
+  const [visible, setVisible] = useState({ buildings: true, roads: true, parcels: true });
+
+  const buildings = result?.buildings || EMPTY;
+  const roads = result?.roads || EMPTY;
+  const parcels = result?.parcels || EMPTY;
+  const ai = result?.ai_engine || result?.ai_info || {};
+  const evaluation = result?.evaluation || {};
+
+  const counts = useMemo(() => ({
+    buildings: featureCount(buildings),
+    roads: featureCount(roads),
+    parcels: featureCount(parcels),
+  }), [buildings, roads, parcels]);
+
+  const total = counts.buildings + counts.roads + counts.parcels;
+  const provider = ai.provider || ai.model || ai.engine || "AI segmentation pipeline";
+  const status = ai.status || "ready";
+  const parcelMode = ai.parcel_mode || result?.cadastral_mode || "Preliminary parcel blocks";
+  const hasEvaluation = evaluation.available === true;
+
+  return (
+    <main style={{ minHeight: "100vh", background: "#f6f8fb", color: "#172033", padding: 24 }}>
+      <div style={{ maxWidth: 1250, margin: "0 auto" }}>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 800 }}>Sahi<span style={{ color: "#2563eb" }}>Naksha</span></div>
+            <div style={{ color: "#64748b", marginTop: 4 }}>AI cadastral extraction dashboard</div>
+          </div>
+          <button onClick={onReset} style={button}>New Analysis</button>
+        </header>
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14, marginBottom: 16 }}>
+          <Metric label="Buildings" value={counts.buildings} note="AI-detected footprints" />
+          <Metric label="Roads" value={counts.roads} note="Detected road evidence" />
+          <Metric label="Parcel blocks" value={counts.parcels} note="Preliminary boundaries" />
+          <Metric label="Total features" value={total} note="Returned by analysis" />
+        </section>
+
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(0,1.65fr) minmax(300px,.85fr)", gap: 16 }}>
+          <div style={card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1, color: "#64748b" }}>AI OUTPUT</div>
+                <h2 style={{ margin: "4px 0 0", fontSize: 19 }}>Detected map features</h2>
+              </div>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                {Object.keys(visible).map((key) => (
+                  <button
+                    key={key}
+                    onClick={() => setVisible((v) => ({ ...v, [key]: !v[key] }))}
+                    style={{ ...button, padding: "6px 10px", fontSize: 12, opacity: visible[key] ? 1 : .45 }}
+                  >
+                    {key[0].toUpperCase() + key.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ height: 510, borderRadius: 12, overflow: "hidden", border: "1px solid #dbe2ea" }}>
+              <MapContainer crs={CRS.Simple} bounds={BOUNDS} style={{ height: "100%", width: "100%", background: "#eef2f7" }} scrollWheelZoom>
+                {visible.parcels && <GeoJSON data={parcels} style={() => layerStyle("parcels")} />}
+                {visible.buildings && <GeoJSON data={buildings} style={() => layerStyle("buildings")} />}
+                {visible.roads && <GeoJSON data={roads} style={() => layerStyle("roads")} />}
+              </MapContainer>
+            </div>
+          </div>
+
+          <aside style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={card}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1, color: "#64748b" }}>MODEL</div>
+              <h2 style={{ margin: "4px 0 8px", fontSize: 19 }}>AI processing</h2>
+              <Info label="Provider" value={pretty(provider)} />
+              <Info label="Status" value={pretty(status)} />
+              <Info label="Analysis ID" value={pretty(result?.analysis_id)} />
+            </div>
+
+            <div style={card}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1, color: "#64748b" }}>OUTPUT SUMMARY</div>
+              <h2 style={{ margin: "4px 0 8px", fontSize: 19 }}>What the AI produced</h2>
+              <Info label="Building footprints" value={`${counts.buildings} detected`} />
+              <Info label="Road evidence" value={`${counts.roads} detected`} />
+              <Info label="Parcel blocks" value={`${counts.parcels} generated`} />
+              <Info label="Parcel mode" value={pretty(parcelMode)} />
+            </div>
+
+            <div style={card}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1, color: "#64748b" }}>VALIDATION</div>
+              <h2 style={{ margin: "4px 0 8px", fontSize: 19 }}>Model evaluation</h2>
+              {hasEvaluation ? (
+                <>
+                  <Info label="Precision" value={formatMetric(evaluation.precision)} />
+                  <Info label="Recall" value={formatMetric(evaluation.recall)} />
+                  <Info label="IoU / F1" value={formatMetric(evaluation.iou ?? evaluation.f1)} />
+                </>
+              ) : (
+                <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.5 }}>
+                  Ground-truth metrics are not available for this run. Accuracy should be reported only after validation data is supplied.
+                </div>
+              )}
+            </div>
+          </aside>
+        </section>
+
+        <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", fontSize: 12.5, lineHeight: 1.45 }}>
+          <strong>Prototype note:</strong> parcel blocks are AI-derived preliminary boundaries. They require authoritative cadastral/GIS and survey validation before legal use.
+        </div>
+      </div>
+    </main>
+  );
 }
